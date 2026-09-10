@@ -23,7 +23,7 @@ export default async function Page() {
       .order("created_at", { ascending: false })
       .limit(300),
     supabase
-      .from("finalists")
+      .from("finalists_public")
       .select("id, company, blurb, top_reason, sort, votes")
       .order("sort", { ascending: true }),
   ]);
@@ -31,12 +31,12 @@ export default async function Page() {
   const stats = (statsRes.data as Stats | null) ?? FALLBACK_STATS;
   const posts = (postsRes.data as PublicPost[] | null) ?? [];
   const rawFinalists =
-    (finalistsRes.data as (PublicFinalist & { votes: number })[] | null) ?? [];
+    (finalistsRes.data as (PublicFinalist & { votes: number | null })[] | null) ?? [];
 
   // Vote counts only leave the server once the results are public.
   const finalists: PublicFinalist[] = rawFinalists.map((f) =>
-    stats.phase === "results"
-      ? f
+    stats.phase === "results" && f.votes !== null
+      ? { ...f, votes: f.votes }
       : {
           id: f.id,
           company: f.company,

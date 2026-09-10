@@ -619,3 +619,22 @@ grant execute on function public.stats() to anon, authenticated;
 grant execute on function public.admin_people() to authenticated;
 grant execute on function public.admin_build_finalists() to authenticated;
 grant execute on function public.is_admin() to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Hardening (2026-09-11): finalists vote counts must not be readable through
+-- the base table before the results phase. Public reads go through
+-- finalists_public, which exposes votes only once phase = 'results'.
+-- ---------------------------------------------------------------------------
+drop view if exists public.finalists_public;
+create view public.finalists_public
+with (security_invoker = false) as
+select f.id, f.company, f.blurb, f.top_reason, f.sort,
+  case when (select s.phase from public.settings s where s.id = 1) = 'results'
+    then f.votes + f.adjust else null end as votes
+from public.finalists f;
+grant select on public.finalists_public to anon, authenticated;
+
+revoke select on public.finalists from anon;
+drop policy if exists finalists_read on public.finalists;
+create policy finalists_read on public.finalists
+for select to authenticated using (public.is_admin());
