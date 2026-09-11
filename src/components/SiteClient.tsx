@@ -166,7 +166,9 @@ export default function SiteClient({
             <h1>
               哪些台灣新創，
               <br />
-              最值得作為<em>日本市場</em>發展案例？
+              最值得作為
+              <br />
+              <em>日本市場</em>發展案例？
             </h1>
             <p className="stand">
               由台灣新創社群共同提名與投票，選出 Community Top 10。前三高票公司將獲得
