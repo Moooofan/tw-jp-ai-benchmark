@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
+const TITLE = "Taiwan → Japan AI Representation Benchmark 2026";
+const DESCRIPTION = "哪些台灣新創，最值得作為日本市場發展案例？";
+
 export const metadata: Metadata = {
-  metadataBase: new URL("https://tuibao-tokyo.vercel.app"),
-  title: "推爆東京",
-  description: "哪家台灣新創在東京最值得推？",
+  metadataBase: new URL("https://tw-jp-ai-benchmark.vercel.app"),
+  title: TITLE,
+  description: DESCRIPTION,
   openGraph: {
-    title: "推爆東京",
-    description: "哪家台灣新創在東京最值得推？",
+    title: TITLE,
+    description: DESCRIPTION,
     type: "website",
   },
 };
@@ -27,7 +30,7 @@ export default function RootLayout({
         {/* eslint-disable-next-line @next/next/no-page-custom-font */}
         <link
           rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Noto+Sans+TC:wght@500;700;900&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Noto+Serif+TC:wght@600;700;900&family=Noto+Sans+TC:wght@400;500;700&display=swap"
         />
       </head>
       <body>{children}</body>

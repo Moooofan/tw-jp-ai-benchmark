@@ -20,6 +20,14 @@ import { useEmailGate } from "./EmailGate";
 
 type PostSort = "score" | "new" | "flagged";
 
+const TITLE = "AI Representation Benchmark";
+const SUBTITLE = "Taiwan → Japan · 2026";
+const DISCLAIMER =
+  "本活動反映社群關注與市場認知，不構成企業赴日業績的客觀排名。";
+
+const POST_COLUMNS =
+  "id, company, company_en, url, company_key, reason, email, up, down, adjust, hidden, flagged, created_at";
+
 export default function AdminClient() {
   const supabase = getBrowserClient();
   const gate = useEmailGate();
@@ -42,18 +50,22 @@ export default function AdminClient() {
   if (!gate.signedIn) {
     return (
       <div className="admin">
-        <h1>推爆東京</h1>
-        <p className="sub">後台。先登入。</p>
-        <button
-          className="abtn abtn--go"
-          type="button"
-          onClick={() => gate.require(() => {})}
-        >
-          登入
-        </button>
+        <h1>{TITLE} — 後台</h1>
+        <p className="sub">{SUBTITLE}。請先以管理者 Email 登入。</p>
+        <p className="sub">
+          <button
+            className="abtn abtn--go"
+            type="button"
+            onClick={() => gate.require(() => {})}
+          >
+            登入
+          </button>
+        </p>
         {gate.modal}
         <footer>
-          <span>純社群投票，好玩用的，不代表任何排名。</span>
+          <div className="colo">
+            <p>{DISCLAIMER}</p>
+          </div>
         </footer>
       </div>
     );
@@ -62,7 +74,7 @@ export default function AdminClient() {
   if (isAdmin === null) {
     return (
       <div className="admin">
-        <p className="sub">看一下…</p>
+        <p className="sub">確認權限中…</p>
         {gate.modal}
       </div>
     );
@@ -71,7 +83,7 @@ export default function AdminClient() {
   if (!isAdmin) {
     return (
       <div className="nothing">
-        這裡沒有東西。
+        這個帳號沒有後台權限。
         {gate.modal}
       </div>
     );
@@ -93,9 +105,7 @@ function AdminBoard() {
       supabase.from("settings").select("*").eq("id", 1).single(),
       supabase
         .from("posts")
-        .select(
-          "id, company, company_key, reason, email, up, down, adjust, hidden, flagged, created_at",
-        )
+        .select(POST_COLUMNS)
         .order("created_at", { ascending: false }),
       supabase.from("finalists").select("*").order("sort", { ascending: true }),
       supabase.rpc("admin_people"),
@@ -117,9 +127,9 @@ function AdminBoard() {
 
   return (
     <div className="admin">
-      <h1>推爆東京 後台</h1>
+      <h1>{TITLE} — 後台</h1>
       <p className="sub">
-        推爆東京的資料都在這裡。{" "}
+        {SUBTITLE}{" "}
         <button className="abtn" type="button" onClick={() => void load()}>
           重新整理
         </button>{" "}
@@ -142,16 +152,14 @@ function AdminBoard() {
 
       <CompanySection posts={posts} />
 
-      <FinalistsSection
-        finalists={finalists}
-        reload={load}
-        onError={setNote}
-      />
+      <FinalistsSection finalists={finalists} reload={load} onError={setNote} />
 
       <PeopleSection people={people} />
 
       <footer>
-        <span>純社群投票，好玩用的，不代表任何排名。</span>
+        <div className="colo">
+          <p>{DISCLAIMER}</p>
+        </div>
       </footer>
     </div>
   );
@@ -184,6 +192,9 @@ function SettingsSection({
     );
   }
 
+  const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
+    setDraft((d) => (d ? { ...d, [key]: value } : d));
+
   async function save() {
     if (!draft) return;
     setBusy(true);
@@ -192,8 +203,15 @@ function SettingsSection({
       .from("settings")
       .update({
         phase: draft.phase,
+        nominate_open: draft.nominate_open,
         nominate_close: draft.nominate_close,
+        vote_open: draft.vote_open,
         vote_close: draft.vote_close,
+        results_label: draft.results_label,
+        iqlite_url: draft.iqlite_url,
+        ximu_url: draft.ximu_url,
+        partners_text: draft.partners_text,
+        contact_email: draft.contact_email,
         people_offset: draft.people_offset,
         companies_offset: draft.companies_offset,
       })
@@ -206,8 +224,23 @@ function SettingsSection({
       return;
     }
     onSaved(data as Settings);
-    setOk("存好了。");
+    setOk("已儲存。");
   }
+
+  const dates: [keyof Settings, string][] = [
+    ["nominate_open", "提名開始"],
+    ["nominate_close", "提名截止"],
+    ["vote_open", "投票開始"],
+    ["vote_close", "投票截止"],
+  ];
+
+  const texts: [keyof Settings, string, string][] = [
+    ["results_label", "結果公布字樣", "10 月 14–15 日"],
+    ["iqlite_url", "IQ Lite 連結", "https://…"],
+    ["ximu_url", "ximu 連結", "https://…"],
+    ["partners_text", "夥伴區文字", "Partner announcement coming soon"],
+    ["contact_email", "聯絡 Email", "hello@example.com"],
+  ];
 
   return (
     <section>
@@ -215,8 +248,8 @@ function SettingsSection({
       <div className="arow">
         {(
           [
-            ["nominate", "推薦中"],
-            ["vote", "決賽投票"],
+            ["nominate", "提名期"],
+            ["vote", "投票期"],
             ["results", "結果"],
           ] as const
         ).map(([value, label]) => (
@@ -225,44 +258,46 @@ function SettingsSection({
               type="radio"
               name="phase"
               checked={draft.phase === value}
-              onChange={() => setDraft({ ...draft, phase: value as Phase })}
+              onChange={() => set("phase", value as Phase)}
             />
             {label}（{value}）
           </label>
         ))}
       </div>
       <div className="arow">
+        {dates.map(([key, label]) => (
+          <label className="afield" key={key}>
+            <span>{label}</span>
+            <input
+              type="datetime-local"
+              value={toLocalInput(draft[key] as string | null)}
+              onChange={(e) =>
+                set(key, fromLocalInput(e.target.value) as Settings[typeof key])
+              }
+            />
+          </label>
+        ))}
+      </div>
+      <div className="arow">
+        {texts.map(([key, label, placeholder]) => (
+          <label className="afield afield--wide" key={key}>
+            <span>{label}</span>
+            <input
+              type="text"
+              placeholder={placeholder}
+              value={(draft[key] as string) ?? ""}
+              onChange={(e) => set(key, e.target.value as Settings[typeof key])}
+            />
+          </label>
+        ))}
+      </div>
+      <div className="arow">
         <label className="afield">
-          <span>推薦截止</span>
-          <input
-            type="datetime-local"
-            value={toLocalInput(draft.nominate_close)}
-            onChange={(e) =>
-              setDraft({
-                ...draft,
-                nominate_close: fromLocalInput(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label className="afield">
-          <span>投票截止</span>
-          <input
-            type="datetime-local"
-            value={toLocalInput(draft.vote_close)}
-            onChange={(e) =>
-              setDraft({ ...draft, vote_close: fromLocalInput(e.target.value) })
-            }
-          />
-        </label>
-        <label className="afield">
-          <span>人數加成</span>
+          <span>參與人數加成</span>
           <input
             type="number"
             value={draft.people_offset}
-            onChange={(e) =>
-              setDraft({ ...draft, people_offset: Number(e.target.value) || 0 })
-            }
+            onChange={(e) => set("people_offset", Number(e.target.value) || 0)}
           />
         </label>
         <label className="afield">
@@ -271,10 +306,7 @@ function SettingsSection({
             type="number"
             value={draft.companies_offset}
             onChange={(e) =>
-              setDraft({
-                ...draft,
-                companies_offset: Number(e.target.value) || 0,
-              })
+              set("companies_offset", Number(e.target.value) || 0)
             }
           />
         </label>
@@ -292,7 +324,7 @@ function SettingsSection({
   );
 }
 
-/* ------------------------------------------------------------------ 貼文 */
+/* ------------------------------------------------------------------ 提名 */
 
 function PostsSection({
   posts,
@@ -315,23 +347,20 @@ function PostsSection({
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    let list = posts.filter((p) => {
+    const list = posts.filter((p) => {
       if (onlyFlagged && p.flagged <= 0) return false;
       if (onlyHidden && !p.hidden) return false;
       if (!needle) return true;
       return (
         p.company.toLowerCase().includes(needle) ||
+        (p.company_en ?? "").toLowerCase().includes(needle) ||
         p.reason.toLowerCase().includes(needle) ||
         p.email.toLowerCase().includes(needle)
       );
     });
-    list = list.slice();
     if (sort === "score") list.sort((a, b) => score(b) - score(a));
     else if (sort === "flagged") list.sort((a, b) => b.flagged - a.flagged);
-    else
-      list.sort(
-        (a, b) => +new Date(b.created_at) - +new Date(a.created_at),
-      );
+    else list.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
     return list;
   }, [posts, q, onlyFlagged, onlyHidden, sort]);
 
@@ -350,7 +379,7 @@ function PostsSection({
   }
 
   async function remove(p: AdminPost) {
-    if (!window.confirm(`刪掉「${p.company}」這則？`)) return;
+    if (!window.confirm(`刪除「${p.company}」這則提名？`)) return;
     const { error } = await supabase.from("posts").delete().eq("id", p.id);
     if (error) {
       onError(errText(error));
@@ -363,7 +392,7 @@ function PostsSection({
     const from = mergeFrom.trim();
     const to = mergeTo.trim();
     if (!from || !to) {
-      onError("合併要選來源，也要填目標公司名。");
+      onError("合併需要來源與目標公司名稱。");
       return;
     }
     const { error } = await supabase
@@ -384,6 +413,8 @@ function PostsSection({
       [
         "id",
         "company",
+        "company_en",
+        "url",
         "reason",
         "email",
         "up",
@@ -397,6 +428,8 @@ function PostsSection({
       ...rows.map((p) => [
         p.id,
         p.company,
+        p.company_en ?? "",
+        p.url ?? "",
         p.reason,
         p.email,
         p.up,
@@ -408,12 +441,14 @@ function PostsSection({
         p.created_at,
       ]),
     ];
-    downloadCsv(`tuibao-posts-${stampToday()}.csv`, toCsv(rowsOut));
+    downloadCsv(`benchmark-posts-${stampToday()}.csv`, toCsv(rowsOut));
   }
 
   return (
     <section>
-      <h2>貼文（{rows.length} / {posts.length}）</h2>
+      <h2>
+        提名（{rows.length} / {posts.length}）
+      </h2>
       <div className="arow">
         <label className="afield">
           <span>搜尋</span>
@@ -421,7 +456,7 @@ function PostsSection({
             type="text"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="公司、理由、信箱"
+            placeholder="公司、理由、Email"
           />
         </label>
         <label className="radio">
@@ -447,12 +482,12 @@ function PostsSection({
             onChange={(e) => setSort(e.target.value as PostSort)}
           >
             <option value="new">最新</option>
-            <option value="score">分數</option>
+            <option value="score">附議分數</option>
             <option value="flagged">被檢舉</option>
           </select>
         </label>
         <button className="abtn" type="button" onClick={exportPosts}>
-          匯出 CSV（含信箱）
+          匯出 CSV（含 Email）
         </button>
       </div>
 
@@ -463,7 +498,7 @@ function PostsSection({
             value={mergeFrom}
             onChange={(e) => setMergeFrom(e.target.value)}
           >
-            <option value="">選一個</option>
+            <option value="">選擇一個</option>
             {companyKeys.map((k) => (
               <option key={k} value={k}>
                 {k}
@@ -477,7 +512,7 @@ function PostsSection({
             type="text"
             value={mergeTo}
             onChange={(e) => setMergeTo(e.target.value)}
-            placeholder="目標公司名"
+            placeholder="目標公司名稱"
           />
         </label>
         <button className="abtn" type="button" onClick={() => void merge()}>
@@ -489,23 +524,46 @@ function PostsSection({
         <table className="at">
           <thead>
             <tr>
-              <th>公司</th>
+              <th>公司中文</th>
+              <th>公司英文</th>
+              <th>官方網址</th>
               <th>理由</th>
-              <th>信箱</th>
-              <th>推</th>
-              <th>噓</th>
+              <th>Email</th>
+              <th>附議</th>
+              <th>存疑</th>
               <th>調整</th>
               <th>分數</th>
               <th>檢舉</th>
               <th>隱藏</th>
               <th>時間</th>
-              <th></th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {rows.map((p) => (
               <tr key={p.id} className={p.hidden ? "is-hidden" : undefined}>
                 <td>{p.company}</td>
+                <td>
+                  <input
+                    type="text"
+                    defaultValue={p.company_en ?? ""}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v !== (p.company_en ?? ""))
+                        void patch(p.id, { company_en: v });
+                    }}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    defaultValue={p.url ?? ""}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v !== (p.url ?? "")) void patch(p.id, { url: v });
+                    }}
+                  />
+                </td>
                 <td>{p.reason}</td>
                 <td>{p.email}</td>
                 <td className="num">{p.up}</td>
@@ -549,7 +607,7 @@ function PostsSection({
         </table>
       </div>
       <p className="note">
-        調整欄改完點別的地方就會存。分數 = 推 − 噓 + 調整。
+        可編輯欄位在離開輸入框時儲存。分數 = 附議 − 存疑 + 調整；分數只有後台看得到。
       </p>
     </section>
   );
@@ -561,7 +619,14 @@ function CompanySection({ posts }: { posts: AdminPost[] }) {
   const rows = useMemo(() => {
     const map = new Map<
       string,
-      { company: string; n: number; score: number; topReason: string; top: number }
+      {
+        company: string;
+        companyEn: string;
+        n: number;
+        score: number;
+        topReason: string;
+        top: number;
+      }
     >();
     for (const p of posts) {
       if (p.hidden) continue;
@@ -570,6 +635,7 @@ function CompanySection({ posts }: { posts: AdminPost[] }) {
       if (!cur) {
         map.set(p.company_key, {
           company: p.company,
+          companyEn: p.company_en ?? "",
           n: 1,
           score: s,
           topReason: p.reason,
@@ -581,6 +647,7 @@ function CompanySection({ posts }: { posts: AdminPost[] }) {
         if (s > cur.top) {
           cur.top = s;
           cur.topReason = p.reason;
+          if (p.company_en) cur.companyEn = p.company_en;
         }
       }
     }
@@ -597,7 +664,8 @@ function CompanySection({ posts }: { posts: AdminPost[] }) {
           <thead>
             <tr>
               <th>#</th>
-              <th>公司</th>
+              <th>公司中文</th>
+              <th>公司英文</th>
               <th>則數</th>
               <th>總分</th>
               <th>最高分理由</th>
@@ -608,6 +676,7 @@ function CompanySection({ posts }: { posts: AdminPost[] }) {
               <tr key={r.company + i}>
                 <td className="num">{i + 1}</td>
                 <td>{r.company}</td>
+                <td>{r.companyEn}</td>
                 <td className="num">{r.n}</td>
                 <td className="num">{r.score}</td>
                 <td>{r.topReason}</td>
@@ -616,12 +685,24 @@ function CompanySection({ posts }: { posts: AdminPost[] }) {
           </tbody>
         </table>
       </div>
-      <p className="note">隱藏的貼文不算在裡面。</p>
+      <p className="note">隱藏的提名不計入。</p>
     </section>
   );
 }
 
-/* -------------------------------------------------------------- 決賽名單 */
+/* ---------------------------------------------------- Community Shortlist */
+
+const FINALIST_FIELDS: [keyof AdminFinalist, string][] = [
+  ["company", "公司中文"],
+  ["name_en", "公司英文"],
+  ["one_liner", "一句話描述"],
+  ["industry", "產業標籤"],
+  ["jp_info", "日本市場公開資訊"],
+  ["url", "官方網址"],
+  ["report_url", "報告連結"],
+  ["blurb", "備註"],
+  ["top_reason", "代表理由"],
+];
 
 function FinalistsSection({
   finalists,
@@ -637,7 +718,9 @@ function FinalistsSection({
 
   async function build() {
     if (
-      !window.confirm("這會清掉現在的決賽名單和決賽票，用目前總表重建前 10。要嗎？")
+      !window.confirm(
+        "這會清除目前的 Shortlist 與所有投票，並依附議分數重建前 10。要繼續嗎？",
+      )
     ) {
       return;
     }
@@ -652,15 +735,11 @@ function FinalistsSection({
   }
 
   async function saveRow(row: AdminFinalist) {
+    const patch: Record<string, unknown> = { sort: row.sort, adjust: row.adjust };
+    for (const [key] of FINALIST_FIELDS) patch[key] = row[key] ?? "";
     const { error } = await supabase
       .from("finalists")
-      .update({
-        company: row.company,
-        blurb: row.blurb,
-        top_reason: row.top_reason,
-        sort: row.sort,
-        adjust: row.adjust,
-      })
+      .update(patch)
       .eq("id", row.id);
     if (error) {
       onError(errText(error));
@@ -670,11 +749,8 @@ function FinalistsSection({
   }
 
   async function removeRow(row: AdminFinalist) {
-    if (!window.confirm(`把「${row.company}」從決賽名單拿掉？`)) return;
-    const { error } = await supabase
-      .from("finalists")
-      .delete()
-      .eq("id", row.id);
+    if (!window.confirm(`把「${row.company}」從 Shortlist 移除？`)) return;
+    const { error } = await supabase.from("finalists").delete().eq("id", row.id);
     if (error) {
       onError(errText(error));
       return;
@@ -683,11 +759,10 @@ function FinalistsSection({
   }
 
   async function addRow() {
-    const nextSort =
-      finalists.reduce((max, f) => Math.max(max, f.sort), 0) + 1;
+    const nextSort = finalists.reduce((max, f) => Math.max(max, f.sort), 0) + 1;
     const { error } = await supabase
       .from("finalists")
-      .insert({ company: "新的一家", sort: nextSort });
+      .insert({ company: "新公司", sort: nextSort });
     if (error) {
       onError(errText(error));
       return;
@@ -697,7 +772,7 @@ function FinalistsSection({
 
   return (
     <section>
-      <h2>決賽名單（{finalists.length}）</h2>
+      <h2>Community Shortlist（{finalists.length}）</h2>
       <div className="arow">
         <button
           className="abtn abtn--go"
@@ -705,10 +780,10 @@ function FinalistsSection({
           disabled={busy}
           onClick={() => void build()}
         >
-          用目前總表自動產生前 10
+          依公司總表自動產生前 10
         </button>
         <button className="abtn" type="button" onClick={() => void addRow()}>
-          加一列
+          新增一列
         </button>
       </div>
       <div className="tablewrap">
@@ -716,12 +791,12 @@ function FinalistsSection({
           <thead>
             <tr>
               <th>順序</th>
-              <th>公司</th>
-              <th>一句話</th>
-              <th>代表理由</th>
+              {FINALIST_FIELDS.map(([key, label]) => (
+                <th key={key}>{label}</th>
+              ))}
               <th>調整</th>
               <th>票數</th>
-              <th></th>
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -736,7 +811,9 @@ function FinalistsSection({
           </tbody>
         </table>
       </div>
-      <p className="note">票數是實際投出來的，調整只是備註用的欄位。</p>
+      <p className="note">
+        票數是實際投出的票；公開頁面只在結果階段顯示票數。調整欄僅供備註。
+      </p>
     </section>
   );
 }
@@ -764,27 +841,15 @@ function FinalistRow({
           }
         />
       </td>
-      <td>
-        <input
-          type="text"
-          value={draft.company}
-          onChange={(e) => setDraft({ ...draft, company: e.target.value })}
-        />
-      </td>
-      <td>
-        <input
-          type="text"
-          value={draft.blurb ?? ""}
-          onChange={(e) => setDraft({ ...draft, blurb: e.target.value })}
-        />
-      </td>
-      <td>
-        <input
-          type="text"
-          value={draft.top_reason ?? ""}
-          onChange={(e) => setDraft({ ...draft, top_reason: e.target.value })}
-        />
-      </td>
+      {FINALIST_FIELDS.map(([key]) => (
+        <td key={key}>
+          <input
+            type="text"
+            value={(draft[key] as string) ?? ""}
+            onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+          />
+        </td>
+      ))}
       <td className="num">
         <input
           type="number"
@@ -797,13 +862,9 @@ function FinalistRow({
       <td className="num">{row.votes}</td>
       <td>
         <button className="abtn" type="button" onClick={() => void onSave(draft)}>
-          存
+          儲存
         </button>{" "}
-        <button
-          className="abtn"
-          type="button"
-          onClick={() => void onDelete(row)}
-        >
+        <button className="abtn" type="button" onClick={() => void onDelete(row)}>
           刪除
         </button>
       </td>
@@ -837,12 +898,12 @@ function PeopleSection({ people }: { people: AdminPerson[] }) {
         (p.companies ?? []).join(" / "),
       ]),
     ];
-    downloadCsv(`tuibao-people-${stampToday()}.csv`, toCsv(rowsOut));
+    downloadCsv(`benchmark-people-${stampToday()}.csv`, toCsv(rowsOut));
   }
 
   return (
     <section>
-      <h2>名單（{people.length}）</h2>
+      <h2>參與名單（{people.length}）</h2>
       <div className="arow">
         <button className="abtn abtn--ink" type="button" onClick={exportPeople}>
           匯出 CSV
@@ -852,14 +913,14 @@ function PeopleSection({ people }: { people: AdminPerson[] }) {
         <table className="at">
           <thead>
             <tr>
-              <th>信箱</th>
+              <th>Email</th>
               <th>user_id</th>
               <th>註冊</th>
               <th>最後登入</th>
-              <th>推文</th>
-              <th>推噓</th>
-              <th>決賽票</th>
-              <th>推過的公司</th>
+              <th>提名</th>
+              <th>附議／存疑</th>
+              <th>正式投票</th>
+              <th>提名過的公司</th>
             </tr>
           </thead>
           <tbody>

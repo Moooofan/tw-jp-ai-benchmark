@@ -1,3 +1,42 @@
+/**
+ * Taipei-time (UTC+8) calendar parts. Fixed offset, so the server and the
+ * browser always render the same string and hydration stays quiet.
+ */
+function tpe(iso: string): { m: number; d: number } | null {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return null;
+  const d = new Date(t + 8 * 3_600_000);
+  return { m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+}
+
+/** `9 月 22 日`, or an empty string when the date is missing. */
+export function monthDay(iso: string | null): string {
+  if (!iso) return "";
+  const p = tpe(iso);
+  return p ? `${p.m} 月 ${p.d} 日` : "";
+}
+
+/** `9 月 22 日 – 10 月 5 日`, degrading gracefully when a bound is unset. */
+export function dateRange(from: string | null, to: string | null): string {
+  const a = monthDay(from);
+  const b = monthDay(to);
+  if (a && b) return `${a} – ${b}`;
+  if (b) return `至 ${b}`;
+  if (a) return `自 ${a}`;
+  return "日期待定";
+}
+
+/** True while `now` sits inside [from, to]; an unset bound is open-ended. */
+export function inWindow(
+  from: string | null,
+  to: string | null,
+  now: number = Date.now(),
+): boolean {
+  if (from && new Date(from).getTime() > now) return false;
+  if (to && new Date(to).getTime() < now) return false;
+  return true;
+}
+
 /** Hour-granular relative time, e.g. 剛剛 / 3 小時前 / 2 天前. */
 export function timeAgo(iso: string, now: number = Date.now()): string {
   const hours = Math.floor((now - new Date(iso).getTime()) / 3_600_000);

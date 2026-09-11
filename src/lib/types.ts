@@ -1,25 +1,40 @@
 export type Phase = "nominate" | "vote" | "results";
 
+/** Everything `stats()` returns. No scores, no rankings — Phase 1 hides both. */
 export type Stats = {
   people: number;
   companies: number;
   phase: Phase;
+  nominate_open: string | null;
   nominate_close: string | null;
+  vote_open: string | null;
   vote_close: string | null;
+  results_label: string;
+  iqlite_url: string;
+  ximu_url: string;
+  partners_text: string;
+  contact_email: string;
 };
 
 export type PublicPost = {
   id: string;
   company: string;
+  company_en: string;
+  url: string;
   reason: string;
   masked_email: string;
-  score: number;
   created_at: string;
 };
 
 export type PublicFinalist = {
   id: string;
   company: string;
+  name_en: string;
+  one_liner: string;
+  industry: string;
+  jp_info: string;
+  url: string;
+  report_url: string;
   blurb: string;
   top_reason: string;
   sort: number;
@@ -29,6 +44,8 @@ export type PublicFinalist = {
 export type AdminPost = {
   id: string;
   company: string;
+  company_en: string;
+  url: string;
   company_key: string;
   reason: string;
   email: string;
@@ -43,6 +60,12 @@ export type AdminPost = {
 export type AdminFinalist = {
   id: string;
   company: string;
+  name_en: string;
+  one_liner: string;
+  industry: string;
+  jp_info: string;
+  url: string;
+  report_url: string;
   blurb: string;
   top_reason: string;
   sort: number;
@@ -64,8 +87,15 @@ export type AdminPerson = {
 export type Settings = {
   id: number;
   phase: Phase;
+  nominate_open: string | null;
   nominate_close: string | null;
+  vote_open: string | null;
   vote_close: string | null;
+  results_label: string;
+  iqlite_url: string;
+  ximu_url: string;
+  partners_text: string;
+  contact_email: string;
   people_offset: number;
   companies_offset: number;
 };

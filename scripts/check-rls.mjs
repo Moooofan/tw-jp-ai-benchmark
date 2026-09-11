@@ -65,12 +65,41 @@ async function denied(name, promise) {
 console.log(`project: ${url}  (anon key, no session)\n`);
 
 await allowed("anon can read posts_public", sb.from("posts_public").select("*").limit(5));
+
+// Phase 1 governance: the public view must carry the v2 columns and must NOT
+// carry any endorsement score.
+{
+  const { data, error } = await sb.from("posts_public").select("*").limit(1);
+  const cols = new Set(
+    Array.isArray(data) && data.length > 0 ? Object.keys(data[0]) : [],
+  );
+  const probe = await sb.from("posts_public").select("score").limit(1);
+  const noScore = !!probe.error && /score/i.test(probe.error.message);
+  record(
+    "posts_public exposes no score",
+    noScore,
+    probe.error ? probe.error.message : "score column is still selectable",
+  );
+  const hasNew =
+    cols.size === 0 ? null : cols.has("company_en") && cols.has("url");
+  record(
+    "posts_public exposes company_en and url",
+    hasNew !== false,
+    hasNew === null
+      ? "no rows yet; column check skipped"
+      : error
+        ? error.message
+        : [...cols].join(", "),
+  );
+}
 await allowed("anon can call stats()", sb.rpc("stats"));
+await allowed("anon can call posts_public_count()", sb.rpc("posts_public_count"));
 await allowed("anon can call company_suggest()", sb.rpc("company_suggest", { q: "a" }));
 await allowed("anon can read finalists_public", sb.from("finalists_public").select("*").limit(5));
 await allowed("anon can read settings", sb.from("settings").select("phase").limit(1));
 
 await denied("anon cannot read posts", sb.from("posts").select("*").limit(1));
+await denied("anon cannot read finalists", sb.from("finalists").select("*").limit(1));
 await denied("anon cannot read votes", sb.from("votes").select("*").limit(1));
 await denied("anon cannot read admins", sb.from("admins").select("*").limit(1));
 await denied("anon cannot read reports", sb.from("reports").select("*").limit(1));
@@ -88,7 +117,12 @@ await mustError(
 
 await mustError(
   "nominate() rejects without a session",
-  sb.rpc("nominate", { p_company: "rls-probe", p_reason: "should never land" }),
+  sb.rpc("nominate", {
+    p_company: "rls-probe",
+    p_company_en: "RLS Probe",
+    p_url: "https://example.com/",
+    p_reason: "should never land".padEnd(70, "."),
+  }),
 );
 await mustError(
   "cast_vote() rejects without a session",

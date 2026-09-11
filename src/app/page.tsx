@@ -8,9 +8,19 @@ const FALLBACK_STATS: Stats = {
   people: 0,
   companies: 0,
   phase: "nominate",
+  nominate_open: null,
   nominate_close: null,
+  vote_open: null,
   vote_close: null,
+  results_label: "10 月 14–15 日",
+  iqlite_url: "",
+  ximu_url: "",
+  partners_text: "Partner announcement coming soon",
+  contact_email: "",
 };
+
+const FINALIST_COLUMNS =
+  "id, company, name_en, one_liner, industry, jp_info, url, report_url, blurb, top_reason, sort, votes";
 
 export default async function Page() {
   const supabase = await getServerClient();
@@ -19,31 +29,24 @@ export default async function Page() {
     supabase.rpc("stats"),
     supabase
       .from("posts_public")
-      .select("id, company, reason, masked_email, score, created_at")
+      .select("id, company, company_en, url, reason, masked_email, created_at")
       .order("created_at", { ascending: false })
       .limit(300),
     supabase
       .from("finalists_public")
-      .select("id, company, blurb, top_reason, sort, votes")
+      .select(FINALIST_COLUMNS)
       .order("sort", { ascending: true }),
   ]);
 
-  const stats = (statsRes.data as Stats | null) ?? FALLBACK_STATS;
+  const stats = { ...FALLBACK_STATS, ...((statsRes.data as Stats | null) ?? {}) };
   const posts = (postsRes.data as PublicPost[] | null) ?? [];
   const rawFinalists =
-    (finalistsRes.data as (PublicFinalist & { votes: number | null })[] | null) ?? [];
+    (finalistsRes.data as (PublicFinalist & { votes: number | null })[] | null) ??
+    [];
 
   // Vote counts only leave the server once the results are public.
-  const finalists: PublicFinalist[] = rawFinalists.map((f) =>
-    stats.phase === "results" && f.votes !== null
-      ? { ...f, votes: f.votes }
-      : {
-          id: f.id,
-          company: f.company,
-          blurb: f.blurb,
-          top_reason: f.top_reason,
-          sort: f.sort,
-        },
+  const finalists: PublicFinalist[] = rawFinalists.map(({ votes, ...rest }) =>
+    stats.phase === "results" && votes !== null ? { ...rest, votes } : rest,
   );
 
   return <SiteClient stats={stats} posts={posts} finalists={finalists} />;

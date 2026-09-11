@@ -10,14 +10,16 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 type Step = "email" | "code";
 
 /**
- * Email OTP gate. `require(fn)` runs `fn` immediately when a session exists,
- * otherwise it opens the modal and runs `fn` after a successful verification.
+ * Email OTP gate. `require(fn, hint)` runs `fn` immediately when a session
+ * exists, otherwise it opens the modal — pre-filled with `hint`, the address
+ * the caller already typed into the form — and runs `fn` after verification.
  */
 export function useEmailGate() {
   const supabase = getBrowserClient();
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
   const [open, setOpen] = useState(false);
+  const [hint, setHint] = useState("");
   const pending = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -38,12 +40,13 @@ export function useEmailGate() {
   }, [supabase]);
 
   const require = useCallback(
-    (fn: () => void) => {
+    (fn: () => void, emailHint?: string) => {
       if (session) {
         fn();
         return;
       }
       pending.current = fn;
+      setHint(emailHint ?? "");
       setOpen(true);
     },
     [session],
@@ -62,7 +65,12 @@ export function useEmailGate() {
   }, []);
 
   const modal = (
-    <EmailModal open={open} onClose={close} onVerified={onVerified} />
+    <EmailModal
+      open={open}
+      hint={hint}
+      onClose={close}
+      onVerified={onVerified}
+    />
   );
 
   return { session, ready, require, modal, signedIn: !!session };
@@ -70,10 +78,12 @@ export function useEmailGate() {
 
 function EmailModal({
   open,
+  hint,
   onClose,
   onVerified,
 }: {
   open: boolean;
+  hint: string;
   onClose: () => void;
   onVerified: () => void;
 }) {
@@ -87,16 +97,17 @@ function EmailModal({
   useEffect(() => {
     if (open) {
       setStep("email");
+      setEmail(hint);
       setCode("");
       setErr("");
       setBusy(false);
     }
-  }, [open]);
+  }, [open, hint]);
 
   async function send() {
     const v = email.trim();
     if (!EMAIL_RE.test(v)) {
-      setErr("這個信箱怪怪的。");
+      setErr("請確認 Email 格式。");
       return;
     }
     setBusy(true);
@@ -116,7 +127,7 @@ function EmailModal({
   async function verify() {
     const token = code.trim();
     if (!/^\d{6}$/.test(token)) {
-      setErr("驗證碼是六位數字。");
+      setErr("驗證碼是 6 位數字。");
       return;
     }
     setBusy(true);
@@ -128,7 +139,7 @@ function EmailModal({
     });
     setBusy(false);
     if (error) {
-      setErr("不對，再看一次信。");
+      setErr("驗證碼不正確，請再確認信件內容。");
       return;
     }
     onVerified();
@@ -138,12 +149,14 @@ function EmailModal({
     <Modal open={open} onClose={onClose}>
       {step === "email" ? (
         <>
-          <h3>先留信箱</h3>
-          <p>一個信箱只能推一次，這樣被推爆的才算數。</p>
+          <h3>驗證你的 Email</h3>
+          <p>
+            Email 僅用於去重與驗證，不公開，不作行銷使用。送出後將寄出 6 位數驗證碼。
+          </p>
           <input
             type="email"
             autoComplete="email"
-            placeholder="name@example.com"
+            placeholder="name@company.com"
             value={email}
             autoFocus
             onChange={(e) => {
@@ -156,19 +169,19 @@ function EmailModal({
           />
           <p className="err">{err}</p>
           <button
-            className="btn btn--sm"
+            className="cta cta--fill"
             type="button"
             disabled={busy}
             onClick={() => void send()}
           >
-            {busy ? "寄出中…" : "寄驗證碼"}
+            {busy ? "寄送中…" : "寄出驗證碼"}
           </button>
-          <p className="fine">驗一次就好，之後不用再驗。信箱不公開。</p>
+          <p className="fine">驗證一次後 30 天內免再驗。</p>
         </>
       ) : (
         <>
-          <h3>驗證碼</h3>
-          <p>寄到 {email.trim()} 了，六位數。</p>
+          <h3>輸入驗證碼</h3>
+          <p>驗證碼已寄到 {email.trim()}，請輸入 6 位數字。</p>
           <input
             className="code"
             inputMode="numeric"
@@ -186,22 +199,22 @@ function EmailModal({
           />
           <p className="err">{err}</p>
           <button
-            className="btn btn--sm"
+            className="cta cta--fill"
             type="button"
             disabled={busy}
             onClick={() => void verify()}
           >
-            {busy ? "確認中…" : "好了"}
+            {busy ? "確認中…" : "確認"}
           </button>
           <button
-            className="abtn"
+            className="linkbtn"
             type="button"
             onClick={() => {
               setStep("email");
               setErr("");
             }}
           >
-            信箱打錯了
+            修改 Email
           </button>
         </>
       )}
