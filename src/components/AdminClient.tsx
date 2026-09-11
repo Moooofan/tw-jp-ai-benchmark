@@ -14,6 +14,7 @@ import type {
   AdminPerson,
   AdminPost,
   Phase,
+  PhaseMode,
   Settings,
 } from "@/lib/types";
 import { useEmailGate } from "./EmailGate";
@@ -95,14 +96,16 @@ export default function AdminClient() {
 function AdminBoard() {
   const supabase = getBrowserClient();
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [effectivePhase, setEffectivePhase] = useState<Phase | null>(null);
   const [posts, setPosts] = useState<AdminPost[]>([]);
   const [finalists, setFinalists] = useState<AdminFinalist[]>([]);
   const [people, setPeople] = useState<AdminPerson[]>([]);
   const [note, setNote] = useState("");
 
   const load = useCallback(async () => {
-    const [s, p, f, ppl] = await Promise.all([
+    const [s, ep, p, f, ppl] = await Promise.all([
       supabase.from("settings").select("*").eq("id", 1).single(),
+      supabase.rpc("effective_phase"),
       supabase
         .from("posts")
         .select(POST_COLUMNS)
@@ -111,6 +114,7 @@ function AdminBoard() {
       supabase.rpc("admin_people"),
     ]);
     if (s.data) setSettings(s.data as Settings);
+    if (ep.data) setEffectivePhase(ep.data as Phase);
     if (p.data) setPosts(p.data as AdminPost[]);
     if (f.data) setFinalists(f.data as AdminFinalist[]);
     if (ppl.data) setPeople(ppl.data as AdminPerson[]);
@@ -141,6 +145,7 @@ function AdminBoard() {
 
       <SettingsSection
         settings={settings}
+        effectivePhase={effectivePhase}
         onSaved={(s) => {
           setSettings(s);
           setNote("");
@@ -167,12 +172,22 @@ function AdminBoard() {
 
 /* ------------------------------------------------------------------ 設定 */
 
+const PHASE_LABEL: Record<Phase, string> = {
+  pre: "尚未開始",
+  nominate: "提名期",
+  vote: "投票期",
+  closed: "已結束",
+  results: "結果",
+};
+
 function SettingsSection({
   settings,
+  effectivePhase,
   onSaved,
   onError,
 }: {
   settings: Settings | null;
+  effectivePhase: Phase | null;
   onSaved: (s: Settings) => void;
   onError: (m: string) => void;
 }) {
@@ -203,6 +218,7 @@ function SettingsSection({
       .from("settings")
       .update({
         phase: draft.phase,
+        phase_mode: draft.phase_mode,
         nominate_open: draft.nominate_open,
         nominate_close: draft.nominate_close,
         vote_open: draft.vote_open,
@@ -248,8 +264,34 @@ function SettingsSection({
       <div className="arow">
         {(
           [
+            ["auto", "自動依日期"],
+            ["manual", "手動"],
+          ] as const
+        ).map(([value, label]) => (
+          <label className="radio" key={value}>
+            <input
+              type="radio"
+              name="phase_mode"
+              checked={draft.phase_mode === value}
+              onChange={() => set("phase_mode", value as PhaseMode)}
+            />
+            {label}
+          </label>
+        ))}
+        <span className="sub">
+          目前實際階段：<b>{effectivePhase ? PHASE_LABEL[effectivePhase] : "…"}</b>
+        </span>
+      </div>
+      <p className="sub">
+        自動依日期：依下方提名／投票的起訖時間自動切換階段；手動：改以下方「階段」設定為準。
+      </p>
+      <div className="arow">
+        {(
+          [
+            ["pre", "尚未開始"],
             ["nominate", "提名期"],
             ["vote", "投票期"],
+            ["closed", "已結束"],
             ["results", "結果"],
           ] as const
         ).map(([value, label]) => (
@@ -264,6 +306,9 @@ function SettingsSection({
           </label>
         ))}
       </div>
+      <p className="sub">
+        以上階段只有在「手動」模式下才會生效；設為「結果」時，不論模式一律優先公布結果。
+      </p>
       <div className="arow">
         {dates.map(([key, label]) => (
           <label className="afield" key={key}>

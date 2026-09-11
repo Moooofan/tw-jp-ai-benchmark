@@ -128,20 +128,42 @@ poke at the API directly.
 
 ## 7. Changing phases
 
-The whole site is driven by one row: `public.settings` where `id = 1`.
+The whole site is driven by one row: `public.settings` where `id = 1`, but the
+site and every write RPC never read `phase` directly — they all call
+`public.effective_phase()`, which is the single source of truth for "what
+phase is it right now":
 
-| phase | what the site shows |
+- `phase_mode = 'auto'` (the default): `effective_phase()` derives the phase
+  purely from the campaign dates — `pre` before `nominate_open`, `nominate`
+  through `nominate_close`, `vote` between `vote_open` and `vote_close`, and
+  `closed` after that. Nobody has to flip anything by hand.
+- `phase_mode = 'manual'`: `effective_phase()` returns `settings.phase`
+  verbatim — the radio in `/admin` wins outright.
+- Either way, `settings.phase = 'results'` always wins. Results are only ever
+  announced by hand, in both modes.
+
+| effective phase | what the site shows |
 |---|---|
+| `pre` | Hero + schedule only; nomination module shows a "not open yet" notice |
 | `nominate` | 提名表單（5 欄）＋ 社群最近提名 list（no counts） |
 | `vote` | Community Shortlist cards, 3 picks per Email, no counts or ranking |
+| `closed` | "投票已結束" notice; schedule panel highlights 結果公布 |
 | `results` | Community Top 10 與 3 Most Voted Featured Companies, placed after the hero |
 
-Change it in `/admin` → 設定 (phase radio, the four campaign dates, the text
-settings and the two counter offsets), or by hand:
+Change it in `/admin` → 設定: the 自動依日期 / 手動 radio picks the mode (the
+panel also shows the current effective phase read-only), the phase radio below
+it (now including 尚未開始 / 已結束) only takes effect in manual mode, and the
+four campaign dates / text settings / two counter offsets are unchanged. Or by
+hand:
 
 ```bash
+# Flip to manual mode and force a phase:
 supabase db query --linked --project-ref pjqejaxfxjtcujfamyem \
-  "update public.settings set phase = 'vote' where id = 1;"
+  "update public.settings set phase_mode = 'manual', phase = 'vote' where id = 1;"
+
+# Back to date-driven switching:
+supabase db query --linked --project-ref pjqejaxfxjtcujfamyem \
+  "update public.settings set phase_mode = 'auto' where id = 1;"
 ```
 
 Before switching to `vote`, press 依公司總表自動產生前 10 in `/admin` →

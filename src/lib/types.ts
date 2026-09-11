@@ -1,10 +1,15 @@
-export type Phase = "nominate" | "vote" | "results";
+export type Phase = "pre" | "nominate" | "vote" | "closed" | "results";
+export type PhaseMode = "auto" | "manual";
 
 /** Everything `stats()` returns. No scores, no rankings — Phase 1 hides both. */
 export type Stats = {
   people: number;
   companies: number;
+  /** effective_phase(): what the site should show right now. */
   phase: Phase;
+  phase_mode: PhaseMode;
+  /** The raw settings.phase radio value; only binding when phase_mode is 'manual'. */
+  manual_phase: Phase;
   nominate_open: string | null;
   nominate_close: string | null;
   vote_open: string | null;
@@ -87,6 +92,7 @@ export type AdminPerson = {
 export type Settings = {
   id: number;
   phase: Phase;
+  phase_mode: PhaseMode;
   nominate_open: string | null;
   nominate_close: string | null;
   vote_open: string | null;

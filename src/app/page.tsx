@@ -7,7 +7,9 @@ export const dynamic = "force-dynamic";
 const FALLBACK_STATS: Stats = {
   people: 0,
   companies: 0,
-  phase: "nominate",
+  phase: "pre",
+  phase_mode: "auto",
+  manual_phase: "nominate",
   nominate_open: null,
   nominate_close: null,
   vote_open: null,

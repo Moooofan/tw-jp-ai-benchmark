@@ -94,7 +94,9 @@ export default function SiteClient({
       ? { label: "提名台灣新創", href: "#nominate" }
       : phase === "vote"
         ? { label: "立即投票", href: "#nominate" }
-        : { label: "查看結果", href: "#results" };
+        : phase === "results"
+          ? { label: "查看結果", href: "#results" }
+          : { label: "查看活動方式", href: "#how" };
 
   const sorted = useMemo(
     () =>
@@ -248,6 +250,10 @@ export default function SiteClient({
             onPicks={(picks) => setMine((m) => ({ ...m, picks }))}
             onDone={() => setThanks(true)}
           />
+        ) : phase === "pre" ? (
+          <PreNoticeSection num={num()} stats={stats} />
+        ) : phase === "closed" ? (
+          <ClosedNoticeSection num={num()} stats={stats} />
         ) : null}
 
         {phase === "nominate" ? (
@@ -548,7 +554,7 @@ function Schedule({ stats }: { stats: Stats }) {
       k: "結果公布",
       v: stats.results_label,
       s: "Community Top 10 與 3 Most Voted Featured Companies",
-      now: stats.phase === "results",
+      now: stats.phase === "results" || stats.phase === "closed",
     },
   ];
   return (
@@ -648,6 +654,30 @@ function ShareRow() {
         {copied ? "已複製連結" : "複製連結"}
       </button>
     </div>
+  );
+}
+
+/* -------------------------------------------------------------- notices */
+
+/** Shown before nominate_open: the hero and schedule stay, only the form waits. */
+function PreNoticeSection({ num, stats }: { num: string; stats: Stats }) {
+  return (
+    <section id="nominate">
+      <SecHead num={num} title="提名尚未開放" />
+      <p className="empty">提名將於 {monthDay(stats.nominate_open)} 開放。</p>
+    </section>
+  );
+}
+
+/** Shown after vote_close, before results are announced. */
+function ClosedNoticeSection({ num, stats }: { num: string; stats: Stats }) {
+  return (
+    <section id="nominate">
+      <SecHead num={num} title="投票已結束" />
+      <p className="empty">
+        投票已結束。結果預計於 {stats.results_label} 公布。
+      </p>
+    </section>
   );
 }
 

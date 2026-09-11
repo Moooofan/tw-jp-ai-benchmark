@@ -93,6 +93,7 @@ await allowed("anon can read posts_public", sb.from("posts_public").select("*").
   );
 }
 await allowed("anon can call stats()", sb.rpc("stats"));
+await allowed("anon can call effective_phase()", sb.rpc("effective_phase"));
 await allowed("anon can call posts_public_count()", sb.rpc("posts_public_count"));
 await allowed("anon can call company_suggest()", sb.rpc("company_suggest", { q: "a" }));
 await allowed("anon can read finalists_public", sb.from("finalists_public").select("*").limit(5));

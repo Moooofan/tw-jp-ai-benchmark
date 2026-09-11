@@ -24,7 +24,7 @@ on conflict (email) do nothing;
 create table if not exists public.settings (
   id int primary key check (id = 1),
   phase text not null default 'nominate'
-    check (phase in ('nominate', 'vote', 'results')),
+    check (phase in ('pre', 'nominate', 'vote', 'closed', 'results')),
   nominate_close timestamptz,
   vote_close timestamptz,
   people_offset int default 0,
@@ -44,6 +44,19 @@ alter table public.settings add column if not exists partners_text text
   not null default 'Partner announcement coming soon';
 alter table public.settings add column if not exists contact_email text
   not null default '';
+
+-- v2.1: auto phase switching. 'auto' derives the live phase from the campaign
+-- dates via effective_phase(); 'manual' falls back to the phase radio in
+-- /admin (except 'results', which always wins regardless of mode).
+alter table public.settings add column if not exists phase_mode text
+  not null default 'auto' check (phase_mode in ('auto', 'manual'));
+
+-- Widen the phase check to also allow 'pre' and 'closed' (manual mode may set
+-- them). Re-running this is a no-op: the constraint is dropped and re-added
+-- with the same definition.
+alter table public.settings drop constraint if exists settings_phase_check;
+alter table public.settings add constraint settings_phase_check
+  check (phase in ('pre', 'nominate', 'vote', 'closed', 'results'));
 
 insert into public.settings (id, phase, nominate_close, vote_close)
 values (1, 'nominate', now() + interval '14 days', now() + interval '28 days')
@@ -147,6 +160,30 @@ as $$
   );
 $$;
 
+-- Single source of truth for "what phase is it right now". In auto mode the
+-- phase is derived purely from the campaign dates; in manual mode the admin's
+-- phase radio wins outright. 'results' always wins regardless of mode -
+-- results are only ever announced by hand.
+create or replace function public.effective_phase()
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    when s.phase_mode = 'manual' then s.phase
+    when s.phase = 'results' then 'results'
+    when now() < s.nominate_open then 'pre'
+    when now() <= s.nominate_close then 'nominate'
+    when s.vote_open is not null and now() >= s.vote_open and now() <= s.vote_close
+      then 'vote'
+    else 'closed'
+  end
+  from public.settings s
+  where s.id = 1;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- Vote-count triggers
 -- ---------------------------------------------------------------------------
@@ -246,7 +283,8 @@ select
 from public.posts p
 where p.hidden = false;
 
--- finalists_public exposes vote counts only once phase = 'results'.
+-- finalists_public exposes vote counts only once the effective phase is
+-- 'results'.
 drop view if exists public.finalists_public;
 create view public.finalists_public
 with (security_invoker = false) as
@@ -262,7 +300,7 @@ select
   f.blurb,
   f.top_reason,
   f.sort,
-  case when (select s.phase from public.settings s where s.id = 1) = 'results'
+  case when public.effective_phase() = 'results'
     then f.votes + f.adjust else null end as votes
 from public.finalists f;
 
@@ -368,7 +406,7 @@ begin
     raise exception '請先完成 Email 驗證。';
   end if;
 
-  select phase into v_phase from public.settings where id = 1;
+  v_phase := public.effective_phase();
   if v_phase is distinct from 'nominate' then
     raise exception '提名期間已結束。';
   end if;
@@ -435,7 +473,7 @@ begin
     raise exception '這個動作無法完成。';
   end if;
 
-  select phase into v_phase from public.settings where id = 1;
+  v_phase := public.effective_phase();
   if v_phase is distinct from 'nominate' then
     raise exception '提名期間已結束。';
   end if;
@@ -499,7 +537,7 @@ begin
     raise exception '請先完成 Email 驗證。';
   end if;
 
-  select phase into v_phase from public.settings where id = 1;
+  v_phase := public.effective_phase();
   if v_phase is distinct from 'vote' then
     raise exception '現在不是投票期間。';
   end if;
@@ -588,7 +626,9 @@ as $$
     'companies', (
       select count(distinct company_key) from public.posts where hidden = false
     ) + coalesce((select companies_offset from public.settings where id = 1), 0),
-    'phase', (select phase from public.settings where id = 1),
+    'phase', public.effective_phase(),
+    'phase_mode', (select phase_mode from public.settings where id = 1),
+    'manual_phase', (select phase from public.settings where id = 1),
     'nominate_open', (select nominate_open from public.settings where id = 1),
     'nominate_close', (select nominate_close from public.settings where id = 1),
     'vote_open', (select vote_open from public.settings where id = 1),
@@ -719,6 +759,7 @@ revoke all on function public.posts_public_count() from public, anon, authentica
 revoke all on function public.admin_people() from public, anon, authenticated;
 revoke all on function public.admin_build_finalists() from public, anon, authenticated;
 revoke all on function public.is_admin() from public, anon, authenticated;
+revoke all on function public.effective_phase() from public, anon, authenticated;
 
 grant execute on function public.nominate(text, text, text, text) to authenticated;
 grant execute on function public.cast_vote(uuid, smallint) to authenticated;
@@ -731,3 +772,4 @@ grant execute on function public.posts_public_count() to anon, authenticated;
 grant execute on function public.admin_people() to authenticated;
 grant execute on function public.admin_build_finalists() to authenticated;
 grant execute on function public.is_admin() to authenticated;
+grant execute on function public.effective_phase() to anon, authenticated;
