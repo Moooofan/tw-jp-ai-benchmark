@@ -105,6 +105,7 @@ await denied("anon cannot read votes", sb.from("votes").select("*").limit(1));
 await denied("anon cannot read admins", sb.from("admins").select("*").limit(1));
 await denied("anon cannot read reports", sb.from("reports").select("*").limit(1));
 await denied("anon cannot read final_votes", sb.from("final_votes").select("*").limit(1));
+await denied("anon cannot read participants", sb.from("participants").select("*").limit(1));
 
 async function mustError(name, promise) {
   const { error } = await promise;
@@ -123,6 +124,7 @@ await mustError(
     p_company_en: "RLS Probe",
     p_url: "https://example.com/",
     p_reason: "should never land".padEnd(70, "."),
+    p_email: "rls-probe@example.com",
   }),
 );
 await mustError(
@@ -130,16 +132,21 @@ await mustError(
   sb.rpc("cast_vote", {
     p_post: "00000000-0000-0000-0000-000000000000",
     p_dir: 1,
+    p_email: "rls-probe@example.com",
   }),
 );
 await mustError(
   "report_post() rejects without a session",
-  sb.rpc("report_post", { p_post: "00000000-0000-0000-0000-000000000000" }),
+  sb.rpc("report_post", {
+    p_post: "00000000-0000-0000-0000-000000000000",
+    p_email: "rls-probe@example.com",
+  }),
 );
 await mustError(
   "cast_final_vote() rejects without a session",
   sb.rpc("cast_final_vote", {
     p_finalist: "00000000-0000-0000-0000-000000000000",
+    p_email: "rls-probe@example.com",
   }),
 );
 await mustError("admin_people() rejects anon", sb.rpc("admin_people"));

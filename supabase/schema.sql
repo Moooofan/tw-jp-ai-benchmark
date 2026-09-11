@@ -144,6 +144,69 @@ create table if not exists public.final_votes (
 
 create index if not exists final_votes_user_id_idx on public.final_votes (user_id);
 
+-- v3: participant identity (no public OTP). The owner has no SMTP provider
+-- and Supabase's built-in mailer only allows ~2 emails/hour, so public OTP
+-- verification is not viable. Instead the browser gets one anonymous
+-- Supabase session (kept in the session cookie) and the participant's email
+-- is a plain, UNVERIFIED form field used only as the de-duplication key.
+-- `participants` is the durable record of every email that has been used.
+create table if not exists public.participants (
+  email_key text primary key,
+  email text not null,
+  first_user_id uuid,
+  created_at timestamptz default now()
+);
+
+-- votes / reports / final_votes move from being keyed by user_id (one
+-- anonymous session) to being keyed by email_key (one person), so "one
+-- person, one vote" survives a cleared cookie as long as the same email is
+-- reused. user_id is kept as an informational audit column only.
+alter table public.votes add column if not exists email_key text;
+update public.votes v set email_key = lower(btrim(p.email))
+  from public.posts p
+  where v.post_id = p.id and v.email_key is null;
+-- Production is empty; any row that still can't be backfilled is dropped so
+-- the NOT NULL / new primary key below can always be applied idempotently.
+delete from public.votes where email_key is null;
+alter table public.votes alter column email_key set not null;
+alter table public.votes drop constraint if exists votes_pkey;
+alter table public.votes add constraint votes_pkey primary key (post_id, email_key);
+create index if not exists votes_email_key_idx on public.votes (email_key);
+
+alter table public.reports add column if not exists email_key text;
+update public.reports r set email_key = lower(btrim(p.email))
+  from public.posts p
+  where r.post_id = p.id and r.email_key is null;
+delete from public.reports where email_key is null;
+alter table public.reports alter column email_key set not null;
+alter table public.reports drop constraint if exists reports_pkey;
+alter table public.reports add constraint reports_pkey primary key (post_id, email_key);
+create index if not exists reports_email_key_idx on public.reports (email_key);
+
+alter table public.final_votes add column if not exists email_key text;
+-- final_votes carries no email of its own to backfill from; empty in prod.
+delete from public.final_votes where email_key is null;
+alter table public.final_votes alter column email_key set not null;
+alter table public.final_votes drop constraint if exists final_votes_pkey;
+alter table public.final_votes add constraint final_votes_pkey
+  primary key (finalist_id, email_key);
+create index if not exists final_votes_email_key_idx on public.final_votes (email_key);
+
+-- DB-side rate limiting (no CAPTCHA, no SMTP to lean on): every write RPC
+-- logs one row here and checks recent counts before proceeding.
+create table if not exists public.write_events (
+  id bigserial primary key,
+  kind text not null,
+  email_key text,
+  user_id uuid,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists write_events_email_key_idx
+  on public.write_events (email_key, created_at);
+create index if not exists write_events_user_id_idx
+  on public.write_events (user_id, created_at);
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
@@ -182,6 +245,49 @@ as $$
   end
   from public.settings s
   where s.id = 1;
+$$;
+
+-- Simple count-based rate limiting: at most 30 writes per email per hour,
+-- and (for vote-shaped writes) at most 60 per anonymous session per hour.
+-- Called by every write RPC before it does anything else; logs the attempt
+-- as a side effect so the next call sees it.
+create or replace function public.check_rate_limit(
+  p_kind text,
+  p_email_key text,
+  p_user_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_email_count int;
+  v_vote_count int;
+begin
+  if p_email_key is not null then
+    select count(*) into v_email_count
+    from public.write_events
+    where email_key = p_email_key and created_at > now() - interval '1 hour';
+    if v_email_count >= 30 then
+      raise exception '操作過於頻繁，請稍後再試。';
+    end if;
+  end if;
+
+  if p_kind in ('vote', 'final_vote') and p_user_id is not null then
+    select count(*) into v_vote_count
+    from public.write_events
+    where user_id = p_user_id
+      and kind in ('vote', 'final_vote')
+      and created_at > now() - interval '1 hour';
+    if v_vote_count >= 60 then
+      raise exception '操作過於頻繁，請稍後再試。';
+    end if;
+  end if;
+
+  insert into public.write_events (kind, email_key, user_id)
+  values (p_kind, p_email_key, p_user_id);
+end;
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -318,8 +424,17 @@ alter table public.votes enable row level security;
 alter table public.reports enable row level security;
 alter table public.finalists enable row level security;
 alter table public.final_votes enable row level security;
+alter table public.participants enable row level security;
+alter table public.write_events enable row level security;
 
 -- admins: no policy at all -> nobody can read it through PostgREST.
+
+drop policy if exists participants_admin_read on public.participants;
+create policy participants_admin_read on public.participants
+for select to authenticated using (public.is_admin());
+
+-- write_events: no policy at all -> nobody can read or write it through
+-- PostgREST. Only check_rate_limit() (security definer) touches it.
 
 drop policy if exists settings_read on public.settings;
 create policy settings_read on public.settings
@@ -363,6 +478,8 @@ revoke all on public.votes from anon, authenticated;
 revoke all on public.reports from anon, authenticated;
 revoke all on public.finalists from anon, authenticated;
 revoke all on public.final_votes from anon, authenticated;
+revoke all on public.participants from anon, authenticated;
+revoke all on public.write_events from anon, authenticated;
 
 grant select on public.settings to anon, authenticated;
 grant update on public.settings to authenticated;
@@ -371,19 +488,24 @@ grant select on public.votes to authenticated;
 grant select on public.reports to authenticated;
 grant select, insert, update, delete on public.finalists to authenticated;
 grant select on public.final_votes to authenticated;
+grant select on public.participants to authenticated;
+-- write_events gets no grants at all: only check_rate_limit() touches it.
 
 -- ---------------------------------------------------------------------------
 -- RPCs
 -- ---------------------------------------------------------------------------
 
--- The v1 three-field nomination is gone; v2 takes the English name and URL too.
+-- The v1 three-field nomination is gone; v2 took the English name and URL
+-- too; v3 drops the JWT email (no OTP any more) for an explicit p_email.
 drop function if exists public.nominate(text, text);
+drop function if exists public.nominate(text, text, text, text);
 
 create or replace function public.nominate(
   p_company text,
   p_company_en text,
   p_url text,
-  p_reason text
+  p_reason text,
+  p_email text
 )
 returns uuid
 language plpgsql
@@ -392,18 +514,19 @@ set search_path = public
 as $$
 declare
   v_uid uuid := auth.uid();
-  v_email text := auth.jwt() ->> 'email';
   v_phase text;
   v_company text := btrim(coalesce(p_company, ''));
   v_company_en text := btrim(coalesce(p_company_en, ''));
   v_url text := btrim(coalesce(p_url, ''));
   v_reason text := btrim(coalesce(p_reason, ''));
+  v_email text := btrim(coalesce(p_email, ''));
+  v_email_key text;
   v_key text;
   v_others int;
   v_id uuid;
 begin
   if v_uid is null then
-    raise exception '請先完成 Email 驗證。';
+    raise exception '請重新整理頁面再試一次。';
   end if;
 
   v_phase := public.effective_phase();
@@ -429,32 +552,46 @@ begin
   if char_length(v_reason) < 60 or char_length(v_reason) > 200 then
     raise exception '理由請寫 60 到 200 字';
   end if;
+  if v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請確認 Email 格式。';
+  end if;
 
+  v_email_key := lower(v_email);
   v_key := lower(v_company);
 
+  perform public.check_rate_limit('nominate', v_email_key, v_uid);
+
+  insert into public.participants (email_key, email, first_user_id)
+  values (v_email_key, v_email, v_uid)
+  on conflict (email_key) do update set email = excluded.email;
+
+  -- The 3-distinct-companies cap is per email, not per anonymous session.
   select count(distinct company_key) into v_others
   from public.posts
-  where user_id = v_uid and company_key <> v_key;
+  where lower(btrim(email)) = v_email_key and company_key <> v_key;
 
   if v_others >= 3 then
     raise exception '每人最多提名三家公司。';
   end if;
 
   insert into public.posts (company, company_en, url, reason, user_id, email)
-  values (v_company, v_company_en, v_url, v_reason, v_uid, coalesce(v_email, ''))
+  values (v_company, v_company_en, v_url, v_reason, v_uid, v_email)
   returning id into v_id;
 
-  insert into public.votes (post_id, user_id, dir)
-  values (v_id, v_uid, 1)
-  on conflict (post_id, user_id) do nothing;
+  insert into public.votes (post_id, user_id, email_key, dir)
+  values (v_id, v_uid, v_email_key, 1)
+  on conflict (post_id, email_key) do nothing;
 
   return v_id;
 end;
 $$;
 
 -- Endorse / doubt. Returns the CALLER'S OWN state only (-1, 0, 1); the public
--- never learns the aggregate.
-create or replace function public.cast_vote(p_post uuid, p_dir smallint)
+-- never learns the aggregate. Keyed by email (v3, no OTP) — user_id is kept
+-- for audit purposes only.
+drop function if exists public.cast_vote(uuid, smallint);
+
+create or replace function public.cast_vote(p_post uuid, p_dir smallint, p_email text)
 returns int
 language plpgsql
 security definer
@@ -463,14 +600,19 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_phase text;
+  v_email text := btrim(coalesce(p_email, ''));
+  v_email_key text;
   v_prev smallint;
   v_mine int := 0;
 begin
   if v_uid is null then
-    raise exception '請先完成 Email 驗證。';
+    raise exception '請重新整理頁面再試一次。';
   end if;
   if p_dir is null or p_dir not in (-1, 1) then
     raise exception '這個動作無法完成。';
+  end if;
+  if v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請確認 Email 格式。';
   end if;
 
   v_phase := public.effective_phase();
@@ -482,18 +624,27 @@ begin
     raise exception '這則提名已不存在。';
   end if;
 
+  v_email_key := lower(v_email);
+
+  perform public.check_rate_limit('vote', v_email_key, v_uid);
+
+  insert into public.participants (email_key, email, first_user_id)
+  values (v_email_key, v_email, v_uid)
+  on conflict (email_key) do update set email = excluded.email;
+
   select dir into v_prev from public.votes
-  where post_id = p_post and user_id = v_uid;
+  where post_id = p_post and email_key = v_email_key;
 
   if v_prev is null then
-    insert into public.votes (post_id, user_id, dir) values (p_post, v_uid, p_dir);
+    insert into public.votes (post_id, user_id, email_key, dir)
+    values (p_post, v_uid, v_email_key, p_dir);
     v_mine := p_dir;
   elsif v_prev = p_dir then
-    delete from public.votes where post_id = p_post and user_id = v_uid;
+    delete from public.votes where post_id = p_post and email_key = v_email_key;
     v_mine := 0;
   else
-    update public.votes set dir = p_dir
-    where post_id = p_post and user_id = v_uid;
+    update public.votes set dir = p_dir, user_id = v_uid
+    where post_id = p_post and email_key = v_email_key;
     v_mine := p_dir;
   end if;
 
@@ -501,7 +652,9 @@ begin
 end;
 $$;
 
-create or replace function public.report_post(p_post uuid)
+drop function if exists public.report_post(uuid);
+
+create or replace function public.report_post(p_post uuid, p_email text)
 returns void
 language plpgsql
 security definer
@@ -509,19 +662,35 @@ set search_path = public
 as $$
 declare
   v_uid uuid := auth.uid();
+  v_email text := btrim(coalesce(p_email, ''));
+  v_email_key text;
 begin
   if v_uid is null then
-    raise exception '請先完成 Email 驗證。';
+    raise exception '請重新整理頁面再試一次。';
+  end if;
+  if v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請確認 Email 格式。';
   end if;
   if not exists (select 1 from public.posts where id = p_post) then
     raise exception '這則提名已不存在。';
   end if;
-  insert into public.reports (post_id, user_id) values (p_post, v_uid)
-  on conflict (post_id, user_id) do nothing;
+
+  v_email_key := lower(v_email);
+  perform public.check_rate_limit('report', v_email_key, v_uid);
+
+  insert into public.participants (email_key, email, first_user_id)
+  values (v_email_key, v_email, v_uid)
+  on conflict (email_key) do update set email = excluded.email;
+
+  insert into public.reports (post_id, user_id, email_key)
+  values (p_post, v_uid, v_email_key)
+  on conflict (post_id, email_key) do nothing;
 end;
 $$;
 
-create or replace function public.cast_final_vote(p_finalist uuid)
+drop function if exists public.cast_final_vote(uuid);
+
+create or replace function public.cast_final_vote(p_finalist uuid, p_email text)
 returns uuid[]
 language plpgsql
 security definer
@@ -530,11 +699,16 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_phase text;
+  v_email text := btrim(coalesce(p_email, ''));
+  v_email_key text;
   v_used int;
   v_picks uuid[];
 begin
   if v_uid is null then
-    raise exception '請先完成 Email 驗證。';
+    raise exception '請重新整理頁面再試一次。';
+  end if;
+  if v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請確認 Email 格式。';
   end if;
 
   v_phase := public.effective_phase();
@@ -546,46 +720,69 @@ begin
     raise exception '這家公司不在名單上。';
   end if;
 
+  v_email_key := lower(v_email);
+  perform public.check_rate_limit('final_vote', v_email_key, v_uid);
+
+  insert into public.participants (email_key, email, first_user_id)
+  values (v_email_key, v_email, v_uid)
+  on conflict (email_key) do update set email = excluded.email;
+
   if exists (
     select 1 from public.final_votes
-    where finalist_id = p_finalist and user_id = v_uid
+    where finalist_id = p_finalist and email_key = v_email_key
   ) then
     delete from public.final_votes
-    where finalist_id = p_finalist and user_id = v_uid;
+    where finalist_id = p_finalist and email_key = v_email_key;
   else
-    select count(*) into v_used from public.final_votes where user_id = v_uid;
+    select count(*) into v_used from public.final_votes where email_key = v_email_key;
     if v_used >= 3 then
       raise exception '每個 Email 最多投三家，請先取消一家。';
     end if;
-    insert into public.final_votes (finalist_id, user_id) values (p_finalist, v_uid);
+    insert into public.final_votes (finalist_id, user_id, email_key)
+    values (p_finalist, v_uid, v_email_key);
   end if;
 
   select coalesce(array_agg(finalist_id), '{}'::uuid[]) into v_picks
-  from public.final_votes where user_id = v_uid;
+  from public.final_votes where email_key = v_email_key;
 
   return v_picks;
 end;
 $$;
 
-create or replace function public.my_state()
+drop function if exists public.my_state();
+
+-- The viewer's own votes/picks/reports, by email (v3, no OTP) rather than by
+-- anonymous session, so they survive a cleared cookie as long as the same
+-- email is reused.
+create or replace function public.my_state(p_email text)
 returns json
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
-  select json_build_object(
+declare
+  v_email text := btrim(coalesce(p_email, ''));
+  v_email_key text;
+begin
+  if auth.uid() is null or v_email = '' then
+    return json_build_object('votes', '{}'::json, 'picks', '[]'::json, 'reports', '[]'::json);
+  end if;
+
+  v_email_key := lower(v_email);
+
+  return json_build_object(
     'votes', coalesce(
-      (select json_object_agg(post_id::text, dir) from public.votes where user_id = auth.uid()),
+      (select json_object_agg(post_id::text, dir) from public.votes where email_key = v_email_key),
       '{}'::json),
     'picks', coalesce(
-      (select json_agg(finalist_id) from public.final_votes where user_id = auth.uid()),
+      (select json_agg(finalist_id) from public.final_votes where email_key = v_email_key),
       '[]'::json),
     'reports', coalesce(
-      (select json_agg(post_id) from public.reports where user_id = auth.uid()),
+      (select json_agg(post_id) from public.reports where email_key = v_email_key),
       '[]'::json)
-  )
-  where auth.uid() is not null;
+  );
+end;
 $$;
 
 create or replace function public.company_suggest(q text)
@@ -652,12 +849,16 @@ as $$
   select count(*)::int from public.posts where hidden = false;
 $$;
 
+-- v3: no more one-to-one anonymous-session <-> auth.users email mapping, so
+-- people are grouped by email_key across participants / posts / votes /
+-- final_votes instead of joining auth.users.
+drop function if exists public.admin_people();
+
 create or replace function public.admin_people()
 returns table (
   email text,
-  user_id uuid,
-  created_at timestamptz,
-  last_sign_in_at timestamptz,
+  email_key text,
+  first_seen timestamptz,
   n_posts bigint,
   n_votes bigint,
   n_final_votes bigint,
@@ -667,34 +868,43 @@ language plpgsql
 security definer
 set search_path = public
 as $$
--- The OUT parameters share names with table columns; prefer the columns.
-#variable_conflict use_column
 begin
   if auth.uid() is null or not public.is_admin() then
     raise exception '這裡沒有東西。';
   end if;
 
   return query
-  with actors as (
-    select p.user_id from public.posts p
+  with keys as (
+    select pt.email_key from public.participants pt
     union
-    select v.user_id from public.votes v
+    select lower(btrim(p.email)) from public.posts p
     union
-    select fv.user_id from public.final_votes fv
+    select v.email_key from public.votes v
+    union
+    select fv.email_key from public.final_votes fv
   )
   select
-    u.email::text,
-    a.user_id,
-    u.created_at,
-    u.last_sign_in_at,
-    (select count(*) from public.posts p where p.user_id = a.user_id),
-    (select count(*) from public.votes v where v.user_id = a.user_id),
-    (select count(*) from public.final_votes f where f.user_id = a.user_id),
+    coalesce(
+      (select pt.email from public.participants pt where pt.email_key = k.email_key),
+      (select p.email from public.posts p
+         where lower(btrim(p.email)) = k.email_key
+         order by p.created_at limit 1),
+      k.email_key
+    ) as email,
+    k.email_key,
+    least(
+      coalesce((select min(pt.created_at) from public.participants pt where pt.email_key = k.email_key), 'infinity'::timestamptz),
+      coalesce((select min(p.created_at) from public.posts p where lower(btrim(p.email)) = k.email_key), 'infinity'::timestamptz),
+      coalesce((select min(v.created_at) from public.votes v where v.email_key = k.email_key), 'infinity'::timestamptz),
+      coalesce((select min(fv.created_at) from public.final_votes fv where fv.email_key = k.email_key), 'infinity'::timestamptz)
+    ) as first_seen,
+    (select count(*) from public.posts p where lower(btrim(p.email)) = k.email_key) as n_posts,
+    (select count(*) from public.votes v where v.email_key = k.email_key) as n_votes,
+    (select count(*) from public.final_votes fv where fv.email_key = k.email_key) as n_final_votes,
     (select coalesce(array_agg(distinct p.company), '{}'::text[])
-       from public.posts p where p.user_id = a.user_id)
-  from actors a
-  join auth.users u on u.id = a.user_id
-  order by u.created_at desc;
+       from public.posts p where lower(btrim(p.email)) = k.email_key) as companies
+  from keys k
+  order by first_seen asc;
 end;
 $$;
 
@@ -748,11 +958,12 @@ $$;
 -- Function grants
 -- ---------------------------------------------------------------------------
 
-revoke all on function public.nominate(text, text, text, text) from public, anon, authenticated;
-revoke all on function public.cast_vote(uuid, smallint) from public, anon, authenticated;
-revoke all on function public.report_post(uuid) from public, anon, authenticated;
-revoke all on function public.cast_final_vote(uuid) from public, anon, authenticated;
-revoke all on function public.my_state() from public, anon, authenticated;
+revoke all on function public.nominate(text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.cast_vote(uuid, smallint, text) from public, anon, authenticated;
+revoke all on function public.report_post(uuid, text) from public, anon, authenticated;
+revoke all on function public.cast_final_vote(uuid, text) from public, anon, authenticated;
+revoke all on function public.my_state(text) from public, anon, authenticated;
+revoke all on function public.check_rate_limit(text, text, uuid) from public, anon, authenticated;
 revoke all on function public.company_suggest(text) from public, anon, authenticated;
 revoke all on function public.stats() from public, anon, authenticated;
 revoke all on function public.posts_public_count() from public, anon, authenticated;
@@ -761,11 +972,12 @@ revoke all on function public.admin_build_finalists() from public, anon, authent
 revoke all on function public.is_admin() from public, anon, authenticated;
 revoke all on function public.effective_phase() from public, anon, authenticated;
 
-grant execute on function public.nominate(text, text, text, text) to authenticated;
-grant execute on function public.cast_vote(uuid, smallint) to authenticated;
-grant execute on function public.report_post(uuid) to authenticated;
-grant execute on function public.cast_final_vote(uuid) to authenticated;
-grant execute on function public.my_state() to authenticated;
+grant execute on function public.nominate(text, text, text, text, text) to authenticated;
+grant execute on function public.cast_vote(uuid, smallint, text) to authenticated;
+grant execute on function public.report_post(uuid, text) to authenticated;
+grant execute on function public.cast_final_vote(uuid, text) to authenticated;
+grant execute on function public.my_state(text) to authenticated;
+-- check_rate_limit() gets no grant: only called internally by the RPCs above.
 grant execute on function public.company_suggest(text) to anon, authenticated;
 grant execute on function public.stats() to anon, authenticated;
 grant execute on function public.posts_public_count() to anon, authenticated;

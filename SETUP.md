@@ -1,7 +1,20 @@
 # Taiwan → Japan AI Representation Benchmark 2026 — setup
 
-Next.js 15 (App Router, TypeScript, `src/`) + Supabase (Postgres, Auth email OTP).
+Next.js 15 (App Router, TypeScript, `src/`) + Supabase (Postgres, Auth).
 Everything the public site needs is the Supabase URL and the **anon** key.
+
+**Two different identity models, on purpose.** The owner decided not to set
+up a custom SMTP provider, and Supabase's built-in mailer only allows a
+couple of emails per hour for the whole project — public email OTP is not
+viable at that volume. So:
+
+- **Participants** (nominate / 附議 / 存疑 / final vote) use an **anonymous
+  Supabase session** (`supabase.auth.signInAnonymously()`, called once per
+  browser) plus a plain Email field that is stored, never verified. Email is
+  only the de-duplication key (`participants.email_key`); see §3 and §4.
+- **`/admin`** still uses real **email OTP** — low volume, one admin
+  signing in occasionally, well inside the mailer's rate limit. Nothing
+  about the admin login changed; see §4.
 
 ## 1. Environment variables
 
@@ -49,8 +62,8 @@ node scripts/check-rls.mjs
 It asserts that anonymous callers can read `posts_public`, `finalists_public`,
 `settings`, `stats()`, `posts_public_count()` and `company_suggest()`; that
 `posts_public` carries `company_en` and `url` but **no** `score`; and that anon
-cannot touch `posts`, `finalists`, `votes`, `admins`, `reports`, `final_votes`
-or any write RPC.
+cannot touch `posts`, `finalists`, `votes`, `admins`, `reports`, `final_votes`,
+`participants`, or any write RPC.
 
 ### What v2 added
 
@@ -69,23 +82,73 @@ or any write RPC.
   `results`.
 - `posts_public_count()` for paging the 社群最近提名 list.
 
-## 4. Auth email templates and OTP settings
+### What v3 added — no public OTP
 
-`supabase/config.toml` holds the auth settings and points at
-`supabase/templates/confirmation.html` and `supabase/templates/magic_link.html`.
-Both templates contain `{{ .Token }}`; both subjects are
-`驗證碼 {{ .Token }}｜AI Representation Benchmark`; the OTP is 6 digits.
-`site_url` and `additional_redirect_urls` point at
+The owner decided against setting up custom SMTP, and Supabase's built-in
+mailer is capped at ~2 emails/hour project-wide, so public email OTP could
+never scale to real participation. v3 replaces it with an honest tradeoff:
+
+- `public.participants (email_key primary key, email, first_user_id,
+  created_at)` — the durable record of every email used to participate.
+  `email_key = lower(btrim(email))`. Admin-only read (`is_admin()`); no
+  direct writes from the API at all (only the RPCs below touch it).
+- `public.votes`, `public.reports`, `public.final_votes` are now keyed by
+  `email_key` instead of `user_id` (new composite primary keys). `user_id`
+  stays on each row as an informational audit column only.
+- Every write RPC takes an explicit `p_email` argument instead of reading
+  `auth.jwt() ->> 'email'` (there is no verified JWT email any more):
+  `nominate(p_company, p_company_en, p_url, p_reason, p_email)`,
+  `cast_vote(p_post, p_dir, p_email)`, `report_post(p_post, p_email)`,
+  `cast_final_vote(p_finalist, p_email)`, `my_state(p_email)`. All still
+  require a live `auth.uid()` (the anonymous session) for the audit trail,
+  and all validate the email format server-side.
+- The 3-distinct-companies nomination cap and the 3-picks final-vote cap are
+  now enforced **per email**, not per browser session.
+- `public.write_events` + `check_rate_limit()` — a plain count-based limiter:
+  at most 30 writes per email per hour, and at most 60 vote-shaped writes
+  (附議／存疑 and final vote) per anonymous session per hour. Over the limit
+  raises `操作過於頻繁，請稍後再試。`. No CAPTCHA, no SMTP dependency.
+- `admin_people()` no longer joins `auth.users` (anonymous sessions have no
+  email there); it groups `participants ∪ posts ∪ votes ∪ final_votes` by
+  `email_key` and returns `(email, email_key, first_seen, n_posts, n_votes,
+  n_final_votes, companies)`.
+- **Honest limits of this model:** the email is never verified, so nothing
+  stops someone from typing an address they don't own, and nothing stops one
+  person from voting multiple times under different emails. It buys
+  low-friction participation without any mail infrastructure, at the cost of
+  the light fraud resistance email OTP used to provide. Fine for a
+  community-sentiment benchmark; would need revisiting for anything with
+  real stakes attached to an individual identity.
+
+## 4. Auth: anonymous participants + admin email OTP
+
+**Participants never see an OTP.** `SiteClient` calls
+`supabase.auth.signInAnonymously()` once per browser, the first time someone
+tries to nominate, 附議/存疑, or vote — the session cookie is then reused for
+every later write. The Email field on the nomination form (and the small
+"留下你的 Email" modal for 附議/存疑/final vote) is stored in
+`localStorage` (`benchmark:email`) and sent as `p_email` to the RPCs; it is
+never verified, and no email is ever sent to a participant.
+
+**`/admin` is unchanged: real email OTP.** `supabase/config.toml` holds the
+auth settings and points at `supabase/templates/confirmation.html` and
+`supabase/templates/magic_link.html`. Both templates contain `{{ .Token }}`;
+both subjects are `驗證碼 {{ .Token }}｜AI Representation Benchmark`; the OTP
+is 6 digits. `site_url` and `additional_redirect_urls` point at
 `https://tw-jp-ai-benchmark.vercel.app` (plus `http://localhost:3000`).
+`[auth] enable_anonymous_sign_ins = true` is the only change that affects
+this file's auth config for v3.
 
 ```bash
 supabase config push --project-ref pjqejaxfxjtcujfamyem --yes
 ```
 
-This was run successfully; the CLI reported `auth: updated`. Re-run it after
-editing either template or any `[auth]` value.
+This was run successfully for `enable_anonymous_sign_ins = true`; the CLI
+reported `auth: updated`. Re-run `config push` after editing either OTP
+template or any other `[auth]` value.
 
 If `config push` ever fails, do the same by hand in the dashboard:
+Authentication → Providers → Email → toggle **Allow anonymous sign-ins** on;
 Authentication → URL Configuration → set the site URL and redirect URLs;
 Authentication → Emails → *Confirm signup* and *Magic Link* → paste the two
 HTML files and set both subjects to
@@ -94,20 +157,25 @@ Email → set **Email OTP Length** to 6.
 
 **Sender name.** Supabase's built-in sender cannot be renamed; the
 `AI Representation Benchmark` sender name only takes effect once custom SMTP is
-configured (see below).
+configured (see below). This now only matters for the rare admin login email,
+not for participants — they never receive mail at all.
 
-## 5. Email deliverability (do this before launch)
+## 5. Email deliverability — admin login only now
 
 Supabase's built-in email sender is **rate limited** (a couple of messages per
-hour for the whole project) and is only meant for development. Before the site
-is public, configure custom SMTP — Resend, Postmark, SendGrid, anything — in
-the dashboard under Project Settings → Authentication → SMTP Settings, then
-raise Authentication → Rate Limits → "Emails sent per hour". Set the SMTP
-sender name to `AI Representation Benchmark` there. Without this, most people
-who ask for a code will never get one.
+hour for the whole project). Because v3 removed public OTP, the only mail
+this project sends any more is the occasional `/admin` sign-in code — one
+admin, signing in occasionally, comfortably inside that limit. Custom SMTP
+(Resend, Postmark, SendGrid, anything, configured in the dashboard under
+Project Settings → Authentication → SMTP Settings) is therefore **not
+required to launch the public site**. It only becomes worth doing if the
+admin roster grows enough that a couple of sign-ins per hour becomes tight,
+or you want the `AI Representation Benchmark` sender name to actually show up
+in the admin's inbox.
 
-Do not test with real OTP emails more than a couple of times before SMTP is in
-place; you will exhaust the hourly quota for everybody.
+Do not test the admin login more than a couple of times in quick succession
+without SMTP in place; you would exhaust the hourly quota for the one admin
+who needs it.
 
 ## 6. Adding an admin
 
@@ -121,10 +189,11 @@ supabase db query --linked --project-ref pjqejaxfxjtcujfamyem \
 
 To remove one, `delete from public.admins where email = '…';`.
 
-`/admin` asks for an email OTP like the public site does. Anyone who signs in
-but is not in `admins` sees only 這個帳號沒有後台權限。 — and the RLS policies
-mean a non-admin cannot read the posts table or the people list even if they
-poke at the API directly.
+`/admin` still asks for a real email OTP (unchanged from before v3) —
+participants no longer do. Anyone who signs in but is not in `admins` sees
+only 這個帳號沒有後台權限。 — and the RLS policies mean a non-admin cannot
+read the posts table, `participants`, or the people list even if they poke at
+the API directly.
 
 ## 7. Changing phases
 
@@ -198,9 +267,10 @@ real destinations before launch.
 
 The public API never exposes an address: `posts_public` only returns
 `masked_email` (`p***@example.com`). Full addresses are readable only through
-the admin-gated `posts` table and `admin_people()`. `/admin` → 參與名單 exports
-them as `benchmark-people-YYYYMMDD.csv`, and 提名 has its own CSV export with
-emails included.
+the admin-gated `posts` table, `public.participants`, and `admin_people()`.
+`/admin` → 參與名單 exports them as `benchmark-people-YYYYMMDD.csv`, and 提名
+has its own CSV export with emails included. Remember these addresses are
+**unverified** (v3, §3) — treat them as self-reported, not confirmed.
 
 ## 11. Deploy
 

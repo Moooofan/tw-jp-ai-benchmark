@@ -924,9 +924,8 @@ function PeopleSection({ people }: { people: AdminPerson[] }) {
     const rowsOut: (string | number)[][] = [
       [
         "email",
-        "user_id",
-        "created_at",
-        "last_sign_in_at",
+        "email_key",
+        "first_seen",
         "n_posts",
         "n_votes",
         "n_final_votes",
@@ -934,9 +933,8 @@ function PeopleSection({ people }: { people: AdminPerson[] }) {
       ],
       ...people.map((p) => [
         p.email,
-        p.user_id,
-        p.created_at,
-        p.last_sign_in_at ?? "",
+        p.email_key,
+        p.first_seen ?? "",
         p.n_posts,
         p.n_votes,
         p.n_final_votes,
@@ -959,9 +957,7 @@ function PeopleSection({ people }: { people: AdminPerson[] }) {
           <thead>
             <tr>
               <th>Email</th>
-              <th>user_id</th>
-              <th>註冊</th>
-              <th>最後登入</th>
+              <th>首次出現</th>
               <th>提名</th>
               <th>附議／存疑</th>
               <th>正式投票</th>
@@ -970,15 +966,11 @@ function PeopleSection({ people }: { people: AdminPerson[] }) {
           </thead>
           <tbody>
             {people.map((p) => (
-              <tr key={p.user_id}>
+              <tr key={p.email_key}>
                 <td>{p.email}</td>
-                <td>{p.user_id}</td>
                 <td className="num">
-                  {new Date(p.created_at).toLocaleString("zh-TW")}
-                </td>
-                <td className="num">
-                  {p.last_sign_in_at
-                    ? new Date(p.last_sign_in_at).toLocaleString("zh-TW")
+                  {p.first_seen
+                    ? new Date(p.first_seen).toLocaleString("zh-TW")
                     : "—"}
                 </td>
                 <td className="num">{p.n_posts}</td>

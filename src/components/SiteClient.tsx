@@ -12,7 +12,7 @@ import {
   type PublicPost,
   type Stats,
 } from "@/lib/types";
-import { useEmailGate } from "./EmailGate";
+import { useParticipantEmail } from "./ParticipantEmail";
 import Modal from "./Modal";
 
 const REFRESH_MS = 20_000;
@@ -52,7 +52,7 @@ export default function SiteClient({
 }) {
   const supabase = getBrowserClient();
   const router = useRouter();
-  const gate = useEmailGate();
+  const identity = useParticipantEmail();
 
   const [posts, setPosts] = useState<PublicPost[]>(serverPosts);
   const [mine, setMine] = useState<MyState>(EMPTY_STATE);
@@ -67,11 +67,11 @@ export default function SiteClient({
   }, [router]);
 
   const loadMine = useCallback(async () => {
-    if (!gate.signedIn) {
+    if (!identity.hasEmail) {
       setMine(EMPTY_STATE);
       return;
     }
-    const { data } = await supabase.rpc("my_state");
+    const { data } = await supabase.rpc("my_state", { p_email: identity.email });
     if (data) {
       const d = data as Partial<MyState>;
       setMine({
@@ -80,7 +80,7 @@ export default function SiteClient({
         reports: d.reports ?? [],
       });
     }
-  }, [gate.signedIn, supabase]);
+  }, [identity.hasEmail, identity.email, supabase]);
 
   useEffect(() => {
     void loadMine();
@@ -108,13 +108,14 @@ export default function SiteClient({
 
   /** Endorse / doubt. Writes `votes`; only the caller's own state is shown. */
   function endorse(post: PublicPost, dir: 1 | -1) {
-    gate.require(async () => {
+    identity.require(async (email) => {
       const prev = mine.votes[post.id] ?? 0;
       const next = prev === dir ? 0 : dir;
       setMine((m) => ({ ...m, votes: { ...m.votes, [post.id]: next } }));
       const { error } = await supabase.rpc("cast_vote", {
         p_post: post.id,
         p_dir: dir,
+        p_email: email,
       });
       if (error) {
         setMine((m) => ({ ...m, votes: { ...m.votes, [post.id]: prev } }));
@@ -234,7 +235,7 @@ export default function SiteClient({
         {phase === "nominate" ? (
           <NominateSection
             num={num()}
-            gate={gate}
+            identity={identity}
             onDone={() => {
               setThanks(true);
               router.refresh();
@@ -244,7 +245,7 @@ export default function SiteClient({
         ) : phase === "vote" ? (
           <VoteSection
             num={num()}
-            gate={gate}
+            identity={identity}
             finalists={finalists}
             picks={mine.picks}
             onPicks={(picks) => setMine((m) => ({ ...m, picks }))}
@@ -400,13 +401,13 @@ export default function SiteClient({
               <details>
                 <summary>資料用途</summary>
                 <div className="a">
-                  Email 僅用於去重、驗證與結果通知，不公開、不作行銷使用。
+                  Email 僅用於去重與結果通知，不公開、不作行銷使用。
                 </div>
               </details>
               <details>
                 <summary>異常票處理</summary>
                 <div className="a">
-                  Email 去重、驗證、後台清理，主辦團隊保留移除異常票的權利。
+                  Email 去重、後台清理，主辦團隊保留移除異常票的權利。
                 </div>
               </details>
               <details>
@@ -516,7 +517,7 @@ export default function SiteClient({
         </div>
       </footer>
 
-      {gate.modal}
+      {identity.modal}
 
       <Modal open={thanks} onClose={() => setThanks(false)}>
         <h3>感謝參與。</h3>
@@ -685,11 +686,11 @@ function ClosedNoticeSection({ num, stats }: { num: string; stats: Stats }) {
 
 function NominateSection({
   num,
-  gate,
+  identity,
   onDone,
 }: {
   num: string;
-  gate: ReturnType<typeof useEmailGate>;
+  identity: ReturnType<typeof useParticipantEmail>;
   onDone: () => void;
 }) {
   const supabase = getBrowserClient();
@@ -744,13 +745,14 @@ function NominateSection({
       return;
     }
     setErr("");
-    gate.require(async () => {
+    identity.require(async (viewerEmail) => {
       setBusy(true);
       const { error } = await supabase.rpc("nominate", {
         p_company: c,
         p_company_en: ce,
         p_url: u,
         p_reason: w,
+        p_email: viewerEmail,
       });
       setBusy(false);
       if (error) {
@@ -872,7 +874,7 @@ function NominateSection({
             }}
           />
           <p className="hint">
-            <span>Email 僅用於去重與驗證，不公開，不作行銷使用。</span>
+            <span>Email 僅用於去重，不公開、不作行銷使用。</span>
           </p>
           {err ? <p className="err">{err}</p> : null}
         </div>
@@ -880,9 +882,6 @@ function NominateSection({
           <button className="cta cta--fill" type="submit" disabled={busy}>
             {busy ? "送出中…" : "送出提名"}
           </button>
-          <p className="fine">
-            送出後將寄出 6 位數驗證碼；驗證一次後 30 天內免再驗。
-          </p>
         </div>
       </form>
     </section>
@@ -893,14 +892,14 @@ function NominateSection({
 
 function VoteSection({
   num,
-  gate,
+  identity,
   finalists,
   picks,
   onPicks,
   onDone,
 }: {
   num: string;
-  gate: ReturnType<typeof useEmailGate>;
+  identity: ReturnType<typeof useParticipantEmail>;
   finalists: PublicFinalist[];
   picks: string[];
   onPicks: (picks: string[]) => void;
@@ -911,7 +910,7 @@ function VoteSection({
   const used = picks.length;
 
   function toggle(f: PublicFinalist) {
-    gate.require(async () => {
+    identity.require(async (email) => {
       setMsg(null);
       if (!picks.includes(f.id) && used >= 3) {
         setMsg("每個 Email 最多投三家，請先取消一家。");
@@ -919,6 +918,7 @@ function VoteSection({
       }
       const { data, error } = await supabase.rpc("cast_final_vote", {
         p_finalist: f.id,
+        p_email: email,
       });
       if (error) {
         setMsg(errText(error));

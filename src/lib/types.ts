@@ -80,9 +80,8 @@ export type AdminFinalist = {
 
 export type AdminPerson = {
   email: string;
-  user_id: string;
-  created_at: string;
-  last_sign_in_at: string | null;
+  email_key: string;
+  first_seen: string | null;
   n_posts: number;
   n_votes: number;
   n_final_votes: number;
