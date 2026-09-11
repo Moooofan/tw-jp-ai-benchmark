@@ -156,11 +156,11 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "https://tuibao-tokyo.vercel.app"
+site_url = "https://tw-jp-ai-benchmark.vercel.app"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["http://localhost:3000", "https://tuibao-tokyo.vercel.app"]
+additional_redirect_urls = ["http://localhost:3000", "https://tw-jp-ai-benchmark.vercel.app"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), max 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -246,11 +246,11 @@ otp_expiry = 3600
 # 6-digit OTP emails. Both templates must contain {{ .Token }}:
 # new addresses get "confirmation", returning addresses get "magic_link".
 [auth.email.template.confirmation]
-subject = "驗證碼 {{ .Token }}"
+subject = "驗證碼 {{ .Token }}｜AI Representation Benchmark"
 content_path = "./supabase/templates/confirmation.html"
 
 [auth.email.template.magic_link]
-subject = "驗證碼 {{ .Token }}"
+subject = "驗證碼 {{ .Token }}｜AI Representation Benchmark"
 content_path = "./supabase/templates/magic_link.html"
 
 # Uncomment to customize notification email template

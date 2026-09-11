@@ -1,7 +1,12 @@
--- 推爆東京 — full database schema.
+-- Taiwan → Japan AI Representation Benchmark 2026 — full database schema.
 -- Idempotent: safe to run repeatedly against the same project.
 -- Apply with:
 --   supabase db query --linked --project-ref pjqejaxfxjtcujfamyem -f supabase/schema.sql
+--
+-- Security posture: the browser only ever holds the anon key. Every read the
+-- public site does goes through an owner-run view or a security-definer RPC;
+-- every write goes through a security-definer RPC that re-checks the phase and
+-- the caller. Phase 1 (nominate) never exposes endorsement counts or scores.
 
 create extension if not exists pgcrypto;
 
@@ -26,6 +31,20 @@ create table if not exists public.settings (
   companies_offset int default 0
 );
 
+-- v2 settings columns (editorial rebuild).
+alter table public.settings add column if not exists nominate_open timestamptz;
+alter table public.settings add column if not exists vote_open timestamptz;
+alter table public.settings add column if not exists results_label text
+  not null default '10 月 14–15 日';
+alter table public.settings add column if not exists iqlite_url text
+  not null default '';
+alter table public.settings add column if not exists ximu_url text
+  not null default '';
+alter table public.settings add column if not exists partners_text text
+  not null default 'Partner announcement coming soon';
+alter table public.settings add column if not exists contact_email text
+  not null default '';
+
 insert into public.settings (id, phase, nominate_close, vote_close)
 values (1, 'nominate', now() + interval '14 days', now() + interval '28 days')
 on conflict (id) do nothing;
@@ -34,7 +53,7 @@ create table if not exists public.posts (
   id uuid primary key default gen_random_uuid(),
   company text not null,
   company_key text generated always as (lower(btrim(company))) stored,
-  reason text not null check (char_length(reason) between 4 and 120),
+  reason text not null,
   user_id uuid not null references auth.users (id),
   email text not null,
   up int default 0,
@@ -44,6 +63,19 @@ create table if not exists public.posts (
   flagged int default 0,
   created_at timestamptz default now()
 );
+
+-- v2 post columns: the nomination form now asks for the English name and the
+-- official URL as well.
+alter table public.posts add column if not exists company_en text
+  not null default '';
+alter table public.posts add column if not exists url text
+  not null default '';
+
+-- Reason length moved from 4–120 to 60–200 characters. NOT VALID so the
+-- statement stays a no-op-safe rewrite on a table that already holds rows.
+alter table public.posts drop constraint if exists posts_reason_check;
+alter table public.posts add constraint posts_reason_check
+  check (char_length(reason) between 60 and 200) not valid;
 
 create index if not exists posts_company_key_idx on public.posts (company_key);
 create index if not exists posts_user_id_idx on public.posts (user_id);
@@ -75,6 +107,20 @@ create table if not exists public.finalists (
   adjust int default 0,
   votes int default 0
 );
+
+-- v2 finalist columns: the Phase 2 company cards.
+alter table public.finalists add column if not exists name_en text
+  not null default '';
+alter table public.finalists add column if not exists one_liner text
+  not null default '';
+alter table public.finalists add column if not exists industry text
+  not null default '';
+alter table public.finalists add column if not exists jp_info text
+  not null default '';
+alter table public.finalists add column if not exists url text
+  not null default '';
+alter table public.finalists add column if not exists report_url text
+  not null default '';
 
 create table if not exists public.final_votes (
   finalist_id uuid not null references public.finalists (id) on delete cascade,
@@ -179,6 +225,10 @@ for each row execute function public.tg_final_votes_sync();
 
 -- ---------------------------------------------------------------------------
 -- Public views (owner-run, so they bypass RLS on the base tables on purpose)
+--
+-- posts_public carries NO score and NO endorsement counts: the campaign
+-- governance rule is that Phase 1 never publishes live rankings or per-name
+-- vote counts. The viewer's own endorsement state comes from my_state().
 -- ---------------------------------------------------------------------------
 
 drop view if exists public.posts_public;
@@ -187,18 +237,33 @@ with (security_invoker = false) as
 select
   p.id,
   p.company,
+  p.company_en,
+  p.url,
   p.reason,
   left(split_part(p.email, '@', 1), 1) || '***@' || split_part(p.email, '@', 2)
     as masked_email,
-  (p.up - p.down + p.adjust) as score,
   p.created_at
 from public.posts p
 where p.hidden = false;
 
+-- finalists_public exposes vote counts only once phase = 'results'.
 drop view if exists public.finalists_public;
 create view public.finalists_public
 with (security_invoker = false) as
-select f.id, f.company, f.blurb, f.top_reason, f.sort
+select
+  f.id,
+  f.company,
+  f.name_en,
+  f.one_liner,
+  f.industry,
+  f.jp_info,
+  f.url,
+  f.report_url,
+  f.blurb,
+  f.top_reason,
+  f.sort,
+  case when (select s.phase from public.settings s where s.id = 1) = 'results'
+    then f.votes + f.adjust else null end as votes
 from public.finalists f;
 
 grant select on public.posts_public to anon, authenticated;
@@ -242,9 +307,10 @@ drop policy if exists final_votes_own_read on public.final_votes;
 create policy final_votes_own_read on public.final_votes
 for select to authenticated using (user_id = auth.uid());
 
+-- Base finalists table is admin-only; the public reads finalists_public.
 drop policy if exists finalists_read on public.finalists;
 create policy finalists_read on public.finalists
-for select to anon, authenticated using (true);
+for select to authenticated using (public.is_admin());
 
 drop policy if exists finalists_admin_write on public.finalists;
 create policy finalists_admin_write on public.finalists
@@ -265,15 +331,22 @@ grant update on public.settings to authenticated;
 grant select, update, delete on public.posts to authenticated;
 grant select on public.votes to authenticated;
 grant select on public.reports to authenticated;
-grant select on public.finalists to anon, authenticated;
-grant insert, update, delete on public.finalists to authenticated;
+grant select, insert, update, delete on public.finalists to authenticated;
 grant select on public.final_votes to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- RPCs
 -- ---------------------------------------------------------------------------
 
-create or replace function public.nominate(p_company text, p_reason text)
+-- The v1 three-field nomination is gone; v2 takes the English name and URL too.
+drop function if exists public.nominate(text, text);
+
+create or replace function public.nominate(
+  p_company text,
+  p_company_en text,
+  p_url text,
+  p_reason text
+)
 returns uuid
 language plpgsql
 security definer
@@ -284,31 +357,39 @@ declare
   v_email text := auth.jwt() ->> 'email';
   v_phase text;
   v_company text := btrim(coalesce(p_company, ''));
+  v_company_en text := btrim(coalesce(p_company_en, ''));
+  v_url text := btrim(coalesce(p_url, ''));
   v_reason text := btrim(coalesce(p_reason, ''));
   v_key text;
   v_others int;
   v_id uuid;
 begin
   if v_uid is null then
-    raise exception '先留信箱才能推。';
+    raise exception '請先完成 Email 驗證。';
   end if;
 
   select phase into v_phase from public.settings where id = 1;
   if v_phase is distinct from 'nominate' then
-    raise exception '推薦階段已經結束了。';
+    raise exception '提名期間已結束。';
   end if;
 
   if v_company = '' then
-    raise exception '公司名要填。';
+    raise exception '請填寫公司中文名稱。';
   end if;
   if char_length(v_company) > 40 then
-    raise exception '公司名太長了。';
+    raise exception '公司中文名稱過長。';
   end if;
-  if char_length(v_reason) < 4 then
-    raise exception '理由至少寫一句，四個字也算。';
+  if char_length(v_company_en) > 80 then
+    raise exception '公司英文名稱過長。';
   end if;
-  if char_length(v_reason) > 120 then
-    raise exception '理由太長了，120 字以內。';
+  if v_url !~* '^https?://' then
+    raise exception '官方網址請以 http:// 或 https:// 開頭。';
+  end if;
+  if char_length(v_url) > 300 then
+    raise exception '官方網址過長。';
+  end if;
+  if char_length(v_reason) < 60 or char_length(v_reason) > 200 then
+    raise exception '理由請寫 60 到 200 字';
   end if;
 
   v_key := lower(v_company);
@@ -318,11 +399,11 @@ begin
   where user_id = v_uid and company_key <> v_key;
 
   if v_others >= 3 then
-    raise exception '一個信箱只能推 3 家';
+    raise exception '每人最多提名三家公司。';
   end if;
 
-  insert into public.posts (company, reason, user_id, email)
-  values (v_company, v_reason, v_uid, coalesce(v_email, ''))
+  insert into public.posts (company, company_en, url, reason, user_id, email)
+  values (v_company, v_company_en, v_url, v_reason, v_uid, coalesce(v_email, ''))
   returning id into v_id;
 
   insert into public.votes (post_id, user_id, dir)
@@ -333,6 +414,8 @@ begin
 end;
 $$;
 
+-- Endorse / doubt. Returns the CALLER'S OWN state only (-1, 0, 1); the public
+-- never learns the aggregate.
 create or replace function public.cast_vote(p_post uuid, p_dir smallint)
 returns int
 language plpgsql
@@ -343,22 +426,22 @@ declare
   v_uid uuid := auth.uid();
   v_phase text;
   v_prev smallint;
-  v_score int;
+  v_mine int := 0;
 begin
   if v_uid is null then
-    raise exception '先留信箱才能推。';
+    raise exception '請先完成 Email 驗證。';
   end if;
   if p_dir is null or p_dir not in (-1, 1) then
-    raise exception '這個動作怪怪的。';
+    raise exception '這個動作無法完成。';
   end if;
 
   select phase into v_phase from public.settings where id = 1;
   if v_phase is distinct from 'nominate' then
-    raise exception '推薦階段已經結束了。';
+    raise exception '提名期間已結束。';
   end if;
 
   if not exists (select 1 from public.posts where id = p_post and hidden = false) then
-    raise exception '這則不見了。';
+    raise exception '這則提名已不存在。';
   end if;
 
   select dir into v_prev from public.votes
@@ -366,15 +449,17 @@ begin
 
   if v_prev is null then
     insert into public.votes (post_id, user_id, dir) values (p_post, v_uid, p_dir);
+    v_mine := p_dir;
   elsif v_prev = p_dir then
     delete from public.votes where post_id = p_post and user_id = v_uid;
+    v_mine := 0;
   else
     update public.votes set dir = p_dir
     where post_id = p_post and user_id = v_uid;
+    v_mine := p_dir;
   end if;
 
-  select up - down + adjust into v_score from public.posts where id = p_post;
-  return v_score;
+  return v_mine;
 end;
 $$;
 
@@ -388,10 +473,10 @@ declare
   v_uid uuid := auth.uid();
 begin
   if v_uid is null then
-    raise exception '先留信箱才能檢舉。';
+    raise exception '請先完成 Email 驗證。';
   end if;
   if not exists (select 1 from public.posts where id = p_post) then
-    raise exception '這則不見了。';
+    raise exception '這則提名已不存在。';
   end if;
   insert into public.reports (post_id, user_id) values (p_post, v_uid)
   on conflict (post_id, user_id) do nothing;
@@ -411,16 +496,16 @@ declare
   v_picks uuid[];
 begin
   if v_uid is null then
-    raise exception '先留信箱才能投。';
+    raise exception '請先完成 Email 驗證。';
   end if;
 
   select phase into v_phase from public.settings where id = 1;
   if v_phase is distinct from 'vote' then
-    raise exception '現在不是投票時間。';
+    raise exception '現在不是投票期間。';
   end if;
 
   if not exists (select 1 from public.finalists where id = p_finalist) then
-    raise exception '這家不在名單上。';
+    raise exception '這家公司不在名單上。';
   end if;
 
   if exists (
@@ -432,7 +517,7 @@ begin
   else
     select count(*) into v_used from public.final_votes where user_id = v_uid;
     if v_used >= 3 then
-      raise exception '3 票用完了，先取消一個。';
+      raise exception '每個 Email 最多投三家，請先取消一家。';
     end if;
     insert into public.final_votes (finalist_id, user_id) values (p_finalist, v_uid);
   end if;
@@ -482,6 +567,7 @@ as $$
   limit 5;
 $$;
 
+-- Participation counters and the campaign schedule. No scores, no rankings.
 create or replace function public.stats()
 returns json
 language sql
@@ -503,9 +589,27 @@ as $$
       select count(distinct company_key) from public.posts where hidden = false
     ) + coalesce((select companies_offset from public.settings where id = 1), 0),
     'phase', (select phase from public.settings where id = 1),
+    'nominate_open', (select nominate_open from public.settings where id = 1),
     'nominate_close', (select nominate_close from public.settings where id = 1),
-    'vote_close', (select vote_close from public.settings where id = 1)
+    'vote_open', (select vote_open from public.settings where id = 1),
+    'vote_close', (select vote_close from public.settings where id = 1),
+    'results_label', (select results_label from public.settings where id = 1),
+    'iqlite_url', (select iqlite_url from public.settings where id = 1),
+    'ximu_url', (select ximu_url from public.settings where id = 1),
+    'partners_text', (select partners_text from public.settings where id = 1),
+    'contact_email', (select contact_email from public.settings where id = 1)
   );
+$$;
+
+-- How many rows posts_public currently holds (for "載入更多" paging).
+create or replace function public.posts_public_count()
+returns int
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select count(*)::int from public.posts where hidden = false;
 $$;
 
 create or replace function public.admin_people()
@@ -554,6 +658,8 @@ begin
 end;
 $$;
 
+-- Builds the Phase 2 shortlist from the most-endorsed nomination of each
+-- company: the English name, URL and representative reason come from that row.
 create or replace function public.admin_build_finalists()
 returns int
 language plpgsql
@@ -576,6 +682,10 @@ begin
       sum(p.up - p.down + p.adjust) as total,
       count(*) as n_posts,
       (array_agg(p.company order by p.created_at))[1] as company,
+      (array_agg(p.company_en order by (p.up - p.down + p.adjust) desc, p.created_at))[1]
+        as name_en,
+      (array_agg(p.url order by (p.up - p.down + p.adjust) desc, p.created_at))[1]
+        as url,
       (array_agg(p.reason order by (p.up - p.down + p.adjust) desc, p.created_at))[1]
         as top_reason
     from public.posts p
@@ -584,8 +694,8 @@ begin
     order by total desc, n_posts desc
     limit 10
   )
-  insert into public.finalists (company, blurb, top_reason, sort)
-  select r.company, '', r.top_reason,
+  insert into public.finalists (company, name_en, url, blurb, top_reason, sort)
+  select r.company, coalesce(r.name_en, ''), coalesce(r.url, ''), '', r.top_reason,
          row_number() over (order by r.total desc, r.n_posts desc)
   from ranked r;
 
@@ -598,43 +708,26 @@ $$;
 -- Function grants
 -- ---------------------------------------------------------------------------
 
-revoke all on function public.nominate(text, text) from public, anon, authenticated;
+revoke all on function public.nominate(text, text, text, text) from public, anon, authenticated;
 revoke all on function public.cast_vote(uuid, smallint) from public, anon, authenticated;
 revoke all on function public.report_post(uuid) from public, anon, authenticated;
 revoke all on function public.cast_final_vote(uuid) from public, anon, authenticated;
 revoke all on function public.my_state() from public, anon, authenticated;
 revoke all on function public.company_suggest(text) from public, anon, authenticated;
 revoke all on function public.stats() from public, anon, authenticated;
+revoke all on function public.posts_public_count() from public, anon, authenticated;
 revoke all on function public.admin_people() from public, anon, authenticated;
 revoke all on function public.admin_build_finalists() from public, anon, authenticated;
 revoke all on function public.is_admin() from public, anon, authenticated;
 
-grant execute on function public.nominate(text, text) to authenticated;
+grant execute on function public.nominate(text, text, text, text) to authenticated;
 grant execute on function public.cast_vote(uuid, smallint) to authenticated;
 grant execute on function public.report_post(uuid) to authenticated;
 grant execute on function public.cast_final_vote(uuid) to authenticated;
 grant execute on function public.my_state() to authenticated;
 grant execute on function public.company_suggest(text) to anon, authenticated;
 grant execute on function public.stats() to anon, authenticated;
+grant execute on function public.posts_public_count() to anon, authenticated;
 grant execute on function public.admin_people() to authenticated;
 grant execute on function public.admin_build_finalists() to authenticated;
 grant execute on function public.is_admin() to authenticated;
-
--- ---------------------------------------------------------------------------
--- Hardening (2026-09-11): finalists vote counts must not be readable through
--- the base table before the results phase. Public reads go through
--- finalists_public, which exposes votes only once phase = 'results'.
--- ---------------------------------------------------------------------------
-drop view if exists public.finalists_public;
-create view public.finalists_public
-with (security_invoker = false) as
-select f.id, f.company, f.blurb, f.top_reason, f.sort,
-  case when (select s.phase from public.settings s where s.id = 1) = 'results'
-    then f.votes + f.adjust else null end as votes
-from public.finalists f;
-grant select on public.finalists_public to anon, authenticated;
-
-revoke select on public.finalists from anon;
-drop policy if exists finalists_read on public.finalists;
-create policy finalists_read on public.finalists
-for select to authenticated using (public.is_admin());
