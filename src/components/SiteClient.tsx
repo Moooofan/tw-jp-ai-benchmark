@@ -3,6 +3,26 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  ChartLine,
+  Compass,
+  Eye,
+  FileText,
+  Link as LinkIcon,
+  ListChecks,
+  ListFilter,
+  Megaphone,
+  MessageSquareQuote,
+  Microscope,
+  Newspaper,
+  PenLine,
+  Radar,
+  Scale,
+  Search,
+  SquareCheckBig,
+  Target,
+  type LucideIcon,
+} from "lucide-react";
 import { dateRange, monthDay } from "@/lib/format";
 import {
   type Phase,
@@ -10,6 +30,7 @@ import {
   type PublicPost,
   type Stats,
 } from "@/lib/types";
+import Icon from "./Icon";
 import { useParticipantEmail } from "./ParticipantEmail";
 import Letters from "./Letters";
 import Section from "./SectionGrid";
@@ -18,6 +39,32 @@ import SiteChrome, { DISCLAIMER } from "./SiteChrome";
 const REFRESH_MS = 20_000;
 const RECENT_ON_HOME = 6;
 const DEFAULT_LINK = "https://ximu.ai/";
+
+/* Icon ↔ text pairs (spec v4 §B). The text is verbatim copy. */
+const QUESTIONS: { icon: LucideIcon; text: string }[] = [
+  {
+    icon: Search,
+    text: "當日本使用者詢問相關產品或服務時，AI 是否會提到這家公司？",
+  },
+  { icon: MessageSquareQuote, text: "AI 如何描述它的定位、能力與競爭者？" },
+  { icon: LinkIcon, text: "AI 的答案引用哪些來源，又缺少哪些可信資訊？" },
+];
+
+const PRIZES: { icon: LucideIcon; text: string }[] = [
+  { icon: FileText, text: "IQ Lite Japan Edition 報告一份" },
+  { icon: Microscope, text: "ximu Intelligence 分析與 Human Analyst Review" },
+  { icon: Radar, text: "日本市場的 AI Representation 診斷" },
+  { icon: LinkIcon, text: "來源與引用環境檢視" },
+  { icon: Scale, text: "競爭定位比較" },
+  { icon: ListChecks, text: "目前最值得處理的優先行動" },
+  { icon: Newspaper, text: "公開案例曝光" },
+];
+
+const PILLARS: { icon: LucideIcon; h: string; p: string }[] = [
+  { icon: Eye, h: "See", p: "AI 如何理解與描述這家公司？" },
+  { icon: Scale, h: "Compare", p: "公司與主要競爭者在 AI 答案中有何不同？" },
+  { icon: Target, h: "Decide", p: "目前最值得優先處理的三項行動是什麼？" },
+];
 
 /** Running section numbers (01, 02, …) so a hidden phase leaves no gap. */
 function makeCounter() {
@@ -119,12 +166,19 @@ export default function SiteClient({
           id="why"
           num={num()}
           title="在台灣被看見，不代表在日本的 AI 世界也被看見"
-          lede="越來越多日本企業與使用者透過 AI 尋找供應商、比較方案、做出第一輪判斷。一家台灣新創在日本市場的存在感，正在由 AI 的答案決定。這個 Benchmark 要回答的，是市場看不到的三個問題。"
         >
+          <p className="lede">
+            越來越多日本企業與使用者透過 AI 尋找供應商、比較方案、做出第一輪判斷。一家台灣新創在日本市場的存在感，正在由 AI 的答案決定。這個 Benchmark 要回答的，是市場看不到的三個問題。
+          </p>
           <ol className="qs">
-            <li>當日本使用者詢問相關產品或服務時，AI 是否會提到這家公司？</li>
-            <li>AI 如何描述它的定位、能力與競爭者？</li>
-            <li>AI 的答案引用哪些來源，又缺少哪些可信資訊？</li>
+            {QUESTIONS.map((q) => (
+              <li key={q.text}>
+                <span className="irow">
+                  <Icon icon={q.icon} />
+                  <span>{q.text}</span>
+                </span>
+              </li>
+            ))}
           </ol>
           <p className="close">
             Taiwan → Japan AI Representation Benchmark
@@ -165,13 +219,12 @@ export default function SiteClient({
             Human Analyst Review 完成並公開。
           </p>
           <ul className="gets">
-            <li>IQ Lite Japan Edition 報告一份</li>
-            <li>ximu Intelligence 分析與 Human Analyst Review</li>
-            <li>日本市場的 AI Representation 診斷</li>
-            <li>來源與引用環境檢視</li>
-            <li>競爭定位比較</li>
-            <li>目前最值得處理的優先行動</li>
-            <li>公開案例曝光</li>
+            {PRIZES.map((g) => (
+              <li className="irow" key={g.text}>
+                <Icon icon={g.icon} />
+                <span>{g.text}</span>
+              </li>
+            ))}
           </ul>
           <span className="valuetag">IQ Lite 定價 US$180</span>
           <p className="note">報告將在取得必要授權後公開提供下載。</p>
@@ -179,18 +232,15 @@ export default function SiteClient({
 
         <Section id="iqlite" num={num()} title="一份 IQ Lite 回答三個完整問題">
           <div className="pillars">
-            <div className="pillar">
-              <h3>See</h3>
-              <p>AI 如何理解與描述這家公司？</p>
-            </div>
-            <div className="pillar">
-              <h3>Compare</h3>
-              <p>公司與主要競爭者在 AI 答案中有何不同？</p>
-            </div>
-            <div className="pillar">
-              <h3>Decide</h3>
-              <p>目前最值得優先處理的三項行動是什麼？</p>
-            </div>
+            {PILLARS.map((pl) => (
+              <div className="pillar irow" key={pl.h}>
+                <Icon icon={pl.icon} />
+                <div className="pillar__kv">
+                  <h3>{pl.h}</h3>
+                  <p>{pl.p}</p>
+                </div>
+              </div>
+            ))}
           </div>
           <p className="note">
             IQ Lite 提供一次性的市場 Snapshot。ximu 用於持續觀察市場、Query、競爭狀態與
@@ -271,32 +321,38 @@ export default function SiteClient({
 
         <Section id="convert" num={num()} title="從 Benchmark 到你自己的市場位置">
           <div className="convert">
-            <div>
-              <h3>想看見自己的市場位置？</h3>
-              <p>取得一份針對單一市場與商業問題的標準化 AI Representation 診斷。</p>
-              <a
-                className="tbtn"
-                href={stats.iqlite_url || DEFAULT_LINK}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Get Your IQ Lite — US$180
-              </a>
+            <div className="irow">
+              <Icon icon={Compass} />
+              <div>
+                <h3>想看見自己的市場位置？</h3>
+                <p>取得一份針對單一市場與商業問題的標準化 AI Representation 診斷。</p>
+                <a
+                  className="tbtn"
+                  href={stats.iqlite_url || DEFAULT_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Get Your IQ Lite — US$180
+                </a>
+              </div>
             </div>
-            <div>
-              <h3>想持續掌握市場如何改變？</h3>
-              <p>
-                IQ Lite 提供一次性的市場 Snapshot；ximu
-                用於持續觀察市場、Query、競爭狀態與 AI Representation 的變化。
-              </p>
-              <a
-                className="tbtn"
-                href={stats.ximu_url || DEFAULT_LINK}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Start with ximu
-              </a>
+            <div className="irow">
+              <Icon icon={ChartLine} />
+              <div>
+                <h3>想持續掌握市場如何改變？</h3>
+                <p>
+                  IQ Lite 提供一次性的市場 Snapshot；ximu
+                  用於持續觀察市場、Query、競爭狀態與 AI Representation 的變化。
+                </p>
+                <a
+                  className="tbtn"
+                  href={stats.ximu_url || DEFAULT_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Start with ximu
+                </a>
+              </div>
             </div>
           </div>
         </Section>
@@ -315,20 +371,29 @@ export default function SiteClient({
 /* ------------------------------------------------------------ schedule */
 
 function Schedule({ stats }: { stats: Stats }) {
-  const rows: { k: string; v: string; s: string; now: boolean }[] = [
+  const rows: {
+    k: string;
+    v: string;
+    s: string;
+    now: boolean;
+    icon: LucideIcon;
+  }[] = [
     {
+      icon: PenLine,
       k: "提名期間",
       v: dateRange(stats.nominate_open, stats.nominate_close),
       s: "每人最多提名三家公司",
       now: stats.phase === "nominate",
     },
     {
+      icon: SquareCheckBig,
       k: "投票期間",
       v: dateRange(stats.vote_open, stats.vote_close),
       s: "從 Community Shortlist 選出最多三家",
       now: stats.phase === "vote",
     },
     {
+      icon: Megaphone,
       k: "結果公布",
       v: stats.results_label,
       s: "Community Top 10 與 3 Most Voted Featured Companies",
@@ -338,12 +403,15 @@ function Schedule({ stats }: { stats: Stats }) {
   return (
     <aside className="sched" aria-label="時程">
       {rows.map((r) => (
-        <div className={r.now ? "row now" : "row"} key={r.k}>
-          <span className="k">{r.k}</span>
-          <span className="v">
-            {r.v}
-            <small>{r.s}</small>
-          </span>
+        <div className={r.now ? "row irow now" : "row irow"} key={r.k}>
+          <Icon icon={r.icon} />
+          <div>
+            <span className="k">{r.k}</span>
+            <span className="v">
+              {r.v}
+              <small>{r.s}</small>
+            </span>
+          </div>
         </div>
       ))}
     </aside>
@@ -355,21 +423,25 @@ function Schedule({ stats }: { stats: Stats }) {
 function HowItWorks({ phase }: { phase: Phase }) {
   const steps = [
     {
+      icon: PenLine,
       h: "社群公開提名",
       p: "每人最多提名三家台灣新創。",
       now: phase === "nominate",
     },
     {
+      icon: ListFilter,
       h: "形成 Shortlist",
       p: "主辦團隊清理公司名稱、檢查資格並形成 Top 10–12 候選名單。",
       now: false,
     },
     {
+      icon: SquareCheckBig,
       h: "社群正式投票",
       p: "每個 Email 最多投三家公司，產生 Community Top 10 與 Top 3。",
       now: phase === "vote",
     },
     {
+      icon: FileText,
       h: "ximu 分析與公開發布",
       p: "前三高票公司獲得 IQ Lite Japan Edition，報告與 Benchmark 將公開提供下載。",
       now: phase === "results",
@@ -379,6 +451,7 @@ function HowItWorks({ phase }: { phase: Phase }) {
     <div className="steps">
       {steps.map((s, i) => (
         <div className={s.now ? "step now" : "step"} key={s.h}>
+          <Icon icon={s.icon} size={24} />
           <div className="num">{i + 1}</div>
           <h3>{s.h}</h3>
           <p>{s.p}</p>
@@ -471,8 +544,10 @@ function Results({
       id="results"
       num={num}
       title="Community Top 10 與 3 Most Voted Featured Companies"
-      lede="本結果由社群提名與投票產生，代表市場認知與關注，不等於日本發展成效的客觀前三名。"
     >
+      <p className="lede">
+        本結果由社群提名與投票產生，代表市場認知與關注，不等於日本發展成效的客觀前三名。
+      </p>
       {top.length === 0 ? (
         <p className="empty">結果尚未公布。</p>
       ) : (

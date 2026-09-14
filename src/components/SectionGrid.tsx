@@ -2,9 +2,14 @@ import type { ReactNode } from "react";
 
 /**
  * THE spine. Every section on `/`, `/nominate` and `/vote` is this one grid:
- * a 300px column for the number + heading + lede, 48px of gutter, and a single
- * content column. Sections never add margins of their own — the rhythm
- * (64px, 2px ink rule, 16px) lives here and nowhere else.
+ * a 300px column for the number + heading (+ one short line), 48px of gutter,
+ * and a single content column. Sections never add margins of their own — the
+ * rhythm (96px, 2px ink rule, 24px, 20px between blocks) lives here and in
+ * `.sec__body`'s gap, nowhere else.
+ *
+ * Spec v4 §A1: the left column carries ONLY the number, the heading and at
+ * most one short line (~20 CJK characters). Running paragraphs go in
+ * `children`, i.e. the right column.
  */
 export default function Section({
   id,
@@ -19,6 +24,7 @@ export default function Section({
   id?: string;
   num?: string;
   title: string;
+  /** One short line (≤ ~20 CJK characters). Paragraphs belong in children. */
   lede?: ReactNode;
   /** Extra material for the left column, under the heading. */
   aside?: ReactNode;

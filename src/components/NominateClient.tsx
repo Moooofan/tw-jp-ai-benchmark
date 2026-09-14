@@ -3,8 +3,10 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { BuildingComplex, Link as LinkIcon, TextAlignStart } from "lucide-react";
 import { dateRange, monthDay } from "@/lib/format";
 import type { PublicPost, Stats } from "@/lib/types";
+import Icon from "./Icon";
 import { useParticipantEmail } from "./ParticipantEmail";
 import Letters from "./Letters";
 import NominateForm from "./NominateForm";
@@ -90,20 +92,27 @@ export default function NominateClient({
               narrow
               lede="每人最多提名三家公司。"
               aside={
-                <>
-                  <ul className="checklist">
-                    <li>公司中英文名稱</li>
-                    <li>官方網址</li>
-                    <li>60–200 字的提名理由</li>
-                  </ul>
-                  <p className="sec__lede">
-                    提名期間{" "}
-                    {dateRange(stats.nominate_open, stats.nominate_close)}
-                  </p>
-                  <p className="sec__lede">{DISCLAIMER}</p>
-                </>
+                <ul className="checklist">
+                  <li className="irow">
+                    <Icon icon={BuildingComplex} />
+                    <span>公司中英文名稱</span>
+                  </li>
+                  <li className="irow">
+                    <Icon icon={LinkIcon} />
+                    <span>官方網址</span>
+                  </li>
+                  <li className="irow">
+                    <Icon icon={TextAlignStart} />
+                    <span>60–200 字的提名理由</span>
+                  </li>
+                </ul>
               }
             >
+              <p className="intro">
+                提名期間 {dateRange(stats.nominate_open, stats.nominate_close)}
+                <br />
+                {DISCLAIMER}
+              </p>
               {done ? (
                 <div className="thanks">
                   <h3>感謝參與。</h3>

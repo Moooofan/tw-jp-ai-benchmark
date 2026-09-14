@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { SquareCheckBig } from "lucide-react";
 import { dateRange, monthDay } from "@/lib/format";
 import { errText, getBrowserClient } from "@/lib/supabase-browser";
 import type { MyState, PublicFinalist, Stats } from "@/lib/types";
+import Icon from "./Icon";
 import { useParticipantEmail } from "./ParticipantEmail";
 import Section from "./SectionGrid";
 import ShareRow from "./ShareRow";
@@ -86,9 +88,12 @@ export default function VoteClient({
             id="ballot"
             title="社群正式投票"
             sticky
-            lede="每個 Email 最多投三家公司"
             aside={
               <>
+                <p className="sec__lede irow">
+                  <Icon icon={SquareCheckBig} />
+                  <span>每個 Email 最多投三家公司</span>
+                </p>
                 <p className="picks">
                   <span className="pips">
                     {[0, 1, 2].map((i) => (
@@ -97,13 +102,14 @@ export default function VoteClient({
                   </span>
                   <span>{msg ?? `還有 ${Math.max(0, PICKS - used)} 票`}</span>
                 </p>
-                <p className="sec__lede">
-                  投票期間 {dateRange(stats.vote_open, stats.vote_close)}
-                </p>
-                <p className="sec__lede">{DISCLAIMER}</p>
               </>
             }
           >
+            <p className="intro">
+              投票期間 {dateRange(stats.vote_open, stats.vote_close)}
+              <br />
+              {DISCLAIMER}
+            </p>
             {finalists.length === 0 ? (
               <p className="empty">Shortlist 尚未公布。</p>
             ) : (
