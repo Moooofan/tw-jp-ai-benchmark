@@ -8,6 +8,7 @@
  * Reads NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY from the
  * environment, falling back to .env.local. Never prints the key.
  */
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
@@ -188,6 +189,80 @@ await allowed(
     JSON.stringify(data),
   );
 }
+// v6r: nominations need a 10–50 character reason. Only probes that fail are
+// sent through PostgREST; the success path runs inside a rolled-back DO block.
+{
+  const { error } = await sb.rpc("nominate_company", {
+    p_domain: "rls-probe.example",
+    p_display_name: "rls-probe",
+    p_reason: "123456789",
+  });
+  record(
+    "anon can call 3-arg nominate_company(); 9-char reason rejected",
+    !!error && error.message.includes("提名理由請寫 10 到 50 字。"),
+    error ? error.message : "unexpectedly succeeded",
+  );
+}
+{
+  const { error } = await sb.rpc("nominate_company", {
+    p_domain: "rls-probe.example",
+    p_display_name: "rls-probe",
+  });
+  record(
+    "2-arg nominate_company() raises 提名方式已更新",
+    !!error && error.message.includes("提名方式已更新，請重新整理頁面。"),
+    error ? error.message : "unexpectedly succeeded",
+  );
+}
+{
+  // As role anon inside one transaction: a valid reason is stored (trimmed),
+  // a 9-char reason and the 2-arg call raise, then everything rolls back.
+  const sql = `do $$
+declare j json; r text; e text;
+begin
+  execute 'set local role anon';
+  j := public.nominate_company('rls-probe.example', 'rls-probe', '  這是一個回滾測試用的提名理由  ');
+  begin
+    perform public.nominate_company('rls-probe.example', 'rls-probe', '123456789');
+    raise exception 'SHORT_REASON_ACCEPTED';
+  exception when others then
+    if sqlerrm not like '%10 到 50 字%' then raise; end if;
+  end;
+  begin
+    perform public.nominate_company('rls-probe.example', 'rls-probe');
+    raise exception 'OLD_SIGNATURE_ACCEPTED';
+  exception when others then
+    if sqlerrm not like '%提名方式已更新%' then raise; end if;
+  end;
+  execute 'reset role';
+  select nm.reason into r from public.nominations nm
+    where nm.domain = 'rls-probe.example' order by nm.id desc limit 1;
+  if j->>'domain' is distinct from 'rls-probe.example'
+     or r is distinct from '這是一個回滾測試用的提名理由' then
+    raise exception 'ROLLBACK_BAD reason=% json=%', r, j;
+  end if;
+  raise exception 'ROLLBACK_OK';
+end;
+$$`;
+  let out = "";
+  try {
+    out = execFileSync("node", ["scripts/apply-sql.mjs", "--sql", sql], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 120000,
+    });
+  } catch (e) {
+    out = String((e.stdout || "") + (e.stderr || "") || e.message);
+  }
+  const line =
+    out.split("\n").find((l) => /ROLLBACK_|SHORT_REASON|OLD_SIGNATURE/.test(l)) ??
+    out.trim().split("\n").slice(-1)[0];
+  record(
+    "rollback test: anon 3-arg nominate stores the reason",
+    /ROLLBACK_OK/.test(out),
+    line?.trim(),
+  );
+}
 await allowed("anon can call board()", sb.rpc("board"));
 await denied(
   "anon cannot read companies",
@@ -211,6 +286,9 @@ await mustErrorLater("anon cannot call take_board_snapshot()", () =>
 );
 await mustErrorLater("admin_company_stats() rejects anon", () =>
   sb.rpc("admin_company_stats"),
+);
+await mustErrorLater("admin_nominations() rejects anon", () =>
+  sb.rpc("admin_nominations"),
 );
 await mustErrorLater("admin_merge_company() rejects anon", () =>
   sb.rpc("admin_merge_company", { p_from: "a.example", p_into: "b.example" }),

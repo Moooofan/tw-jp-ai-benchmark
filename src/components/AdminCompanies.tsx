@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { downloadCsv, normalizeDomain, stampToday, toCsv } from "@/lib/format";
 import { errText, getBrowserClient } from "@/lib/supabase-browser";
-import type { AdminCompany } from "@/lib/types";
+import type { AdminCompany, AdminNomination } from "@/lib/types";
 
 const STATUSES: AdminCompany["status"][] = ["active", "pending", "hidden"];
 
@@ -59,12 +59,23 @@ export default function AdminCompanies({
   const [into, setInto] = useState("");
   const [csv, setCsv] = useState("");
   const [msg, setMsg] = useState("");
+  const [noms, setNoms] = useState<AdminNomination[]>([]);
+  const [nomFilter, setNomFilter] = useState("");
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase.rpc("admin_company_stats");
-    if (error) onError(errText(error));
-    else setRows((data as AdminCompany[] | null) ?? []);
+    const [stats, list] = await Promise.all([
+      supabase.rpc("admin_company_stats"),
+      supabase.rpc("admin_nominations"),
+    ]);
+    if (stats.error) onError(errText(stats.error));
+    else setRows((stats.data as AdminCompany[] | null) ?? []);
+    if (list.error) onError(errText(list.error));
+    else setNoms((list.data as AdminNomination[] | null) ?? []);
   }, [supabase, onError]);
+
+  const shownNoms = nomFilter
+    ? noms.filter((n) => n.domain === nomFilter)
+    : noms;
 
   useEffect(() => {
     void load();
@@ -180,6 +191,23 @@ export default function AdminCompanies({
     );
   }
 
+  function exportNominationsCsv() {
+    downloadCsv(
+      `nominations-${stampToday()}.csv`,
+      toCsv([
+        ["id", "created_at", "domain", "display_name", "typed_name", "reason"],
+        ...noms.map((n) => [
+          n.id,
+          n.created_at,
+          n.domain,
+          n.display_name,
+          n.typed_name,
+          n.reason,
+        ]),
+      ]),
+    );
+  }
+
   const patch = (domain: string, p: Partial<AdminCompany>) =>
     setRows((rs) => rs.map((r) => (r.domain === domain ? { ...r, ...p } : r)));
 
@@ -261,7 +289,25 @@ export default function AdminCompanies({
                   </select>
                 </td>
                 <td>{r.is_seed ? "是" : ""}</td>
-                <td className="num">{r.nominations}</td>
+                <td className="num">
+                  {r.nominations > 0 ? (
+                    <button
+                      className="linkish"
+                      type="button"
+                      title="看提名理由"
+                      onClick={() => {
+                        setNomFilter(r.domain);
+                        document
+                          .getElementById("admin-nominations")
+                          ?.scrollIntoView({ behavior: "smooth" });
+                      }}
+                    >
+                      {r.nominations}
+                    </button>
+                  ) : (
+                    0
+                  )}
+                </td>
                 <td>
                   {fmt(r.first_nominated_at)}
                   <br />
@@ -280,6 +326,63 @@ export default function AdminCompanies({
                 </td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="admin-nominations">提名紀錄與理由（{shownNoms.length}）</h3>
+      <div className="arow">
+        <label className="afield">
+          <span>公司</span>
+          <select
+            value={nomFilter}
+            onChange={(e) => setNomFilter(e.target.value)}
+          >
+            <option value="">全部</option>
+            {rows
+              .filter((r) => r.nominations > 0)
+              .map((r) => (
+                <option key={r.domain} value={r.domain}>
+                  {r.display_name}（{r.domain}）
+                </option>
+              ))}
+          </select>
+        </label>
+        <button className="abtn" type="button" onClick={exportNominationsCsv}>
+          匯出提名 CSV（含理由）
+        </button>
+      </div>
+      <div className="tablewrap">
+        <table className="at">
+          <thead>
+            <tr>
+              <th>時間</th>
+              <th>公司</th>
+              <th>輸入的名稱</th>
+              <th>提名理由</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shownNoms.map((n) => (
+              <tr key={n.id}>
+                <td>{fmt(n.created_at)}</td>
+                <td>
+                  {n.display_name ?? n.domain}
+                  <div className="note">{n.domain}</div>
+                </td>
+                <td>{n.typed_name ?? ""}</td>
+                <td>
+                  {n.reason ?? <span className="note">（改版前的提名，無理由）</span>}
+                </td>
+              </tr>
+            ))}
+            {shownNoms.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="note">
+                  還沒有提名。
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

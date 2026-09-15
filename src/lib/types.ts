@@ -155,6 +155,16 @@ export type AdminCompany = {
   last_nominated_at: string | null;
 };
 
+/** admin_nominations() row (v6r). reason is null for pre-v6r nominations. */
+export type AdminNomination = {
+  id: number;
+  domain: string;
+  display_name: string | null;
+  reason: string | null;
+  typed_name: string | null;
+  created_at: string | null;
+};
+
 // ---------------------------------------------------------------- v7 Phase 2
 
 /** One pick in a `cast_ballot` payload. `reason` is 10–50 characters. */

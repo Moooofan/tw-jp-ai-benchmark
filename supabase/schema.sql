@@ -2456,3 +2456,170 @@ revoke all on function public.admin_merge_company(text, text) from public, anon,
 grant execute on function public.admin_merge_company(text, text) to authenticated;
 
 -- END v7b
+
+
+-- v6r — Phase 1 nomination reason (owner request, overrides memo v4.0's
+-- 「不要求理由」): every new nomination carries a 10–50 character reason.
+-- Existing nominations keep reason = null (the check is NOT VALID and allows
+-- null). The 2-arg nominate_company now only tells stale tabs to reload.
+-- BEGIN v6r
+alter table public.nominations add column if not exists reason text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'nominations_reason_len'
+      and conrelid = 'public.nominations'::regclass
+  ) then
+    alter table public.nominations
+      add constraint nominations_reason_len
+      check (reason is null or char_length(btrim(reason)) between 10 and 50)
+      not valid;
+  end if;
+end;
+$$;
+
+-- The one Phase 1 write, now with a reason. Same rules as v6 otherwise:
+-- phase must be 'nominate'; new domain -> pending company with the typed
+-- name; soft rate limit (20/session/hour, 200/domain/hour) returns ok but
+-- writes nothing.
+create or replace function public.nominate_company(
+  p_domain text,
+  p_display_name text,
+  p_reason text
+)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_phase text := public.effective_phase();
+  v_domain text := public.normalize_domain(p_domain);
+  v_name text := left(regexp_replace(btrim(coalesce(p_display_name, '')), '\s+', ' ', 'g'), 60);
+  v_reason text := btrim(regexp_replace(coalesce(p_reason, ''), '\s+', ' ', 'g'));
+  v_c public.companies;
+  v_hops int := 0;
+  v_limited boolean := false;
+begin
+  if v_phase = 'pre' then
+    raise exception '提名尚未開放。';
+  end if;
+  if v_phase is distinct from 'nominate' then
+    raise exception '提名期間已結束。';
+  end if;
+  if char_length(v_reason) not between 10 and 50 then
+    raise exception '提名理由請寫 10 到 50 字。';
+  end if;
+  if not public.valid_domain(v_domain) then
+    raise exception '請輸入正確的官方網站，例如 https://example.com';
+  end if;
+
+  select * into v_c from public.companies c where c.domain = v_domain;
+  while v_c.merged_into is not null and v_hops < 5 loop
+    select * into v_c from public.companies c where c.domain = v_c.merged_into;
+    v_hops := v_hops + 1;
+  end loop;
+
+  if v_c.domain is null and v_name = '' then
+    raise exception '請輸入公司名稱。';
+  end if;
+
+  if v_uid is not null and (
+    select count(*) from public.nominations n
+    where n.session_id = v_uid and n.created_at > now() - interval '1 hour'
+  ) >= 20 then
+    v_limited := true;
+  end if;
+  if v_c.domain is not null and (
+    select count(*) from public.nominations n
+    where n.domain = v_c.domain and n.created_at > now() - interval '1 hour'
+  ) >= 200 then
+    v_limited := true;
+  end if;
+
+  if v_limited then
+    return json_build_object(
+      'domain', coalesce(v_c.domain, v_domain),
+      'display_name', coalesce(v_c.display_name, v_name),
+      'aliases', to_json(coalesce(v_c.aliases, '{}'::text[])),
+      'ok', true
+    );
+  end if;
+
+  if v_c.domain is null then
+    insert into public.companies (domain, display_name, status)
+    values (v_domain, v_name, 'pending')
+    on conflict (domain) do nothing;
+    select * into v_c from public.companies c where c.domain = v_domain;
+  end if;
+
+  insert into public.nominations (domain, session_id, typed_name, reason)
+  values (v_c.domain, v_uid, nullif(v_name, ''), v_reason);
+
+  return json_build_object(
+    'domain', v_c.domain,
+    'display_name', v_c.display_name,
+    'aliases', to_json(v_c.aliases),
+    'ok', true
+  );
+end;
+$$;
+
+-- Stale tabs still call the 2-arg version: tell them to reload.
+create or replace function public.nominate_company(p_domain text, p_display_name text)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+begin
+  raise exception '提名方式已更新，請重新整理頁面。';
+end;
+$$;
+
+-- Admin: individual nominations with their reasons, newest first.
+create or replace function public.admin_nominations(p_domain text default null)
+returns table (
+  id bigint,
+  domain text,
+  display_name text,
+  reason text,
+  typed_name text,
+  created_at timestamptz
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  return query
+    select nm.id, nm.domain, c.display_name, nm.reason, nm.typed_name, nm.created_at
+    from public.nominations nm
+    left join public.companies c on c.domain = nm.domain
+    where p_domain is null or nm.domain = p_domain
+    order by nm.created_at desc, nm.id desc;
+end;
+$$;
+
+revoke all on function public.nominate_company(text, text, text) from public, anon, authenticated;
+
+revoke all on function public.nominate_company(text, text) from public, anon, authenticated;
+
+revoke all on function public.admin_nominations(text) from public, anon, authenticated;
+
+grant execute on function public.nominate_company(text, text, text) to anon, authenticated;
+
+grant execute on function public.nominate_company(text, text) to anon, authenticated;
+
+grant execute on function public.admin_nominations(text) to authenticated;
+
+-- END v6r

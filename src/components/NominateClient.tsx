@@ -6,6 +6,7 @@ import {
   ArrowRight,
   ExternalLink,
   Globe,
+  PenLine,
   RotateCcw,
   Search,
 } from "lucide-react";
@@ -19,11 +20,16 @@ import ShareRow from "./ShareRow";
 import SiteChrome, { type ChromeStory } from "./SiteChrome";
 
 const SEARCH_MS = 250;
+const REASON_MIN = 10;
+const REASON_MAX = 50;
+
+/** Same normalisation as nominate_company(): collapse whitespace, trim. */
+const cleanReason = (s: string) => s.replace(/\s+/g, " ").trim();
 
 type Step =
   | { kind: "search" }
   | { kind: "confirm"; company: CompanyMatch; viaSite: boolean }
-  | { kind: "done"; company: CompanyMatch };
+  | { kind: "done"; company: CompanyMatch; reason: string };
 
 function CompanyCard({ c }: { c: CompanyMatch }) {
   return (
@@ -47,7 +53,8 @@ function CompanyCard({ c }: { c: CompanyMatch }) {
 
 /**
  * `/nominate` (spec v6 §4): company name -> pick a match (or give the
- * official website) -> confirm -> done. No email, no reason, no cap.
+ * official website) -> confirm + 10–50 character reason -> done. No email,
+ * no cap. The reason requirement (v6r) overrides the v6 spec's "no reason".
  */
 export default function NominateClient({
   stats,
@@ -65,6 +72,7 @@ export default function NominateClient({
   const [showSite, setShowSite] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [reason, setReason] = useState("");
   const nameInput = useRef<HTMLInputElement>(null);
   const siteInput = useRef<HTMLInputElement>(null);
 
@@ -119,11 +127,13 @@ export default function NominateClient({
   }
 
   async function nominate(c: CompanyMatch) {
+    const r = cleanReason(reason);
     setErr("");
     setBusy(true);
     const { data, error } = await supabase.rpc("nominate_company", {
       p_domain: c.domain,
       p_display_name: name.trim() || c.display_name,
+      p_reason: r,
     });
     setBusy(false);
     if (error) {
@@ -135,7 +145,11 @@ export default function NominateClient({
     } catch {
       /* storage unavailable */
     }
-    setStep({ kind: "done", company: (data as CompanyMatch | null) ?? c });
+    setStep({
+      kind: "done",
+      company: (data as CompanyMatch | null) ?? c,
+      reason: r,
+    });
   }
 
   function restart() {
@@ -145,6 +159,7 @@ export default function NominateClient({
     setMatches([]);
     setSearched("");
     setShowSite(false);
+    setReason("");
     setErr("");
     setTimeout(() => nameInput.current?.focus(), 0);
   }
@@ -178,6 +193,7 @@ export default function NominateClient({
         </span>
         <h3>提名完成！</h3>
         <CompanyCard c={c} />
+        <blockquote className="reasonquote">{step.reason}</blockquote>
         <p>這家公司已被提名，謝謝你。</p>
         <div className="after">
           <button type="button" className="btn btn--red" onClick={restart}>
@@ -189,12 +205,14 @@ export default function NominateClient({
           </Link>
         </div>
         <ShareRow
-          text={`我提名了 ${c.display_name}：過去五年最值得作為日本市場發展案例的台灣新創。你呢？`}
+          text={`我提名了 ${c.display_name}：${step.reason}　過去五年，你認為哪些台灣新創最值得作為日本市場發展案例？`}
         />
       </div>
     );
   } else if (step.kind === "confirm") {
     const c = step.company;
+    const len = cleanReason(reason).length;
+    const reasonOk = len >= REASON_MIN && len <= REASON_MAX;
     body = (
       <div className="flow">
         <h3>是這家公司嗎？</h3>
@@ -204,15 +222,41 @@ export default function NominateClient({
             我們會以官方網站辨識公司，名稱之後可能統一為市場常用的品牌名。
           </p>
         ) : null}
+        <div className="f">
+          <label htmlFor="reason">
+            <Icon icon={PenLine} />
+            為什麼提名這家公司？
+          </label>
+          <textarea
+            id="reason"
+            className="reasonbox"
+            rows={3}
+            value={reason}
+            maxLength={120}
+            placeholder="一句話就好，例如它在日本做了什麼（10–50 字）"
+            aria-describedby="reason-count"
+            onChange={(e) => {
+              setReason(e.target.value);
+              setErr("");
+            }}
+          />
+          <small
+            id="reason-count"
+            className={`reasoncount${len > REASON_MAX ? " is-over" : ""}`}
+            aria-live="polite"
+          >
+            {len} / {REASON_MAX}
+          </small>
+        </div>
         {err ? <p className="err">{err}</p> : null}
         <div className="after">
           <button
             type="button"
             className="btn btn--red"
-            disabled={busy}
+            disabled={busy || !reasonOk}
             onClick={() => void nominate(c)}
           >
-            {busy ? "提名中…" : "對，提名這家"}
+            {busy ? "提名中…" : "送出提名"}
           </button>
           <button
             type="button"
@@ -337,7 +381,7 @@ export default function NominateClient({
         <div className="wrap">
           <span className="chip">Nominate</span>
           <h1>提名台灣新創</h1>
-          <p>輸入公司名稱，確認後就完成。</p>
+          <p>輸入公司名稱，確認公司，再寫一句為什麼。</p>
         </div>
       </div>
       <div className="wrap">
