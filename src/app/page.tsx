@@ -6,9 +6,9 @@ import { loadSiteData } from "@/lib/site-data";
 export const revalidate = 300;
 
 export default async function Page() {
-  const { stats, posts, finalists, board } = await loadSiteData();
+  const { stats, posts, finalists } = await loadSiteData();
   if (isPhaseOne(stats.phase)) {
-    return <HomePhase1 stats={phaseOneStats(stats)} board={board} />;
+    return <HomePhase1 stats={phaseOneStats(stats)} />;
   }
   // Loaded only for vote / closed / results, so the later-phase copy is not
   // part of the Phase 1 bundle.

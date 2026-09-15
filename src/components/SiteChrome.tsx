@@ -102,7 +102,6 @@ export default function SiteChrome({
             <Link href="/#background">前情提要</Link>
             {phaseOne ? (
               <>
-                <Link href="/#board">候選名單</Link>
                 <Link href="/#how">提名說明</Link>
               </>
             ) : (
@@ -140,7 +139,6 @@ export default function SiteChrome({
           <nav>
             {phaseOne ? (
               <>
-                <Link href="/#board">候選名單</Link>
                 <Link href="/#how">提名說明</Link>
               </>
             ) : (

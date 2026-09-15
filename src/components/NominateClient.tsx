@@ -178,14 +178,14 @@ export default function NominateClient({
         </span>
         <h3>提名完成！</h3>
         <CompanyCard c={c} />
-        <p>這家公司已被提名。名單大約每小時更新。</p>
+        <p>這家公司已被提名，謝謝你。</p>
         <div className="after">
           <button type="button" className="btn btn--red" onClick={restart}>
             再提名一家
             <Icon icon={ArrowRight} />
           </button>
-          <Link className="btn btn--ghost" href="/#board">
-            看看候選名單
+          <Link className="btn btn--ghost" href="/">
+            回到首頁
           </Link>
         </div>
         <ShareRow

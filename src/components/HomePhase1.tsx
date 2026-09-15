@@ -2,23 +2,18 @@ import {
   ArrowRight,
   Building2,
   CalendarDays,
-  Clock,
   Info,
   PartyPopper,
   Search,
   SquareCheckBig,
+  UserX,
   type LucideIcon,
 } from "lucide-react";
 import { dateRange } from "@/lib/format";
-import type { Board, Stats } from "@/lib/types";
+import type { Stats } from "@/lib/types";
 import BackgroundBand from "./BackgroundBand";
 import Band from "./Band";
 import Icon from "./Icon";
-import NominationBoard, {
-  BoardProvider,
-  BoardTotal,
-  BoardUpdated,
-} from "./NominationBoard";
 import SiteChrome, { DISCLAIMER, NominateCta } from "./SiteChrome";
 
 const STEPS: { icon: LucideIcon; h: string; p: string }[] = [
@@ -31,7 +26,7 @@ const STEPS: { icon: LucideIcon; h: string; p: string }[] = [
   {
     icon: PartyPopper,
     h: "完成提名",
-    p: "同一家公司可以被很多人提名，名單每小時更新。",
+    p: "同一家公司可以被很多人提名。",
   },
 ];
 
@@ -52,27 +47,19 @@ const FAQ: { q: string; a: string }[] = [
     q: "什麼樣的公司可以被提名？",
     a: "台灣新創，且過去五年在日本市場有公開可查的發展。",
   },
-  { q: "名單多久更新？", a: "大約每小時更新一次。" },
 ];
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
 /**
- * `/` in pre / nominate (spec v6 §3): one question, a live nomination board,
- * nothing about what happens next. Server component; only the board is
- * interactive.
+ * `/` in pre / nominate (spec v6 §3): one question, a frictionless nomination entry,
+ * nothing about what happens next. Server component.
  */
-export default function HomePhase1({
-  stats,
-  board,
-}: {
-  stats: Stats;
-  board: Board;
-}) {
+export default function HomePhase1({ stats }: { stats: Stats }) {
   const open = stats.phase === "nominate";
   return (
     <SiteChrome stats={stats} home>
-      <BoardProvider board={board}>
+      <>
         <div className="hero hero--p1">
           <div className="hero__ghost" aria-hidden="true">
             TAIWAN → JAPAN
@@ -94,8 +81,8 @@ export default function HomePhase1({
                 <NominateCta stats={stats}>
                   <Icon icon={ArrowRight} />
                 </NominateCta>
-                <a className="btn btn--line" href="#board">
-                  看看大家提名了誰
+                <a className="btn btn--line" href="#background">
+                  先看前情提要
                 </a>
               </div>
               <p className="hero__disc">
@@ -121,33 +108,17 @@ export default function HomePhase1({
             </div>
             <div className="sc">
               <Icon icon={Building2} />
-              <span className="k">已被提名的公司</span>
-              <span className="v">
-                <span className="num">
-                  <BoardTotal />
-                </span>{" "}
-                家
-              </span>
+              <span className="k">提名方式</span>
+              <span className="v">輸入公司名稱就完成</span>
             </div>
             <div className="sc">
-              <Icon icon={Clock} />
-              <span className="k">最近更新</span>
-              <span className="v">
-                <span className="num">
-                  <BoardUpdated />
-                </span>
-              </span>
+              <Icon icon={UserX} />
+              <span className="k">不用註冊</span>
+              <span className="v">也不用留 Email</span>
             </div>
           </div>
 
           <BackgroundBand ctaHref={open ? "/nominate" : "#how"} />
-
-          <Band id="board" chip="Nomination Board" title="候選名單">
-            <p className="notice">
-              這是提名名單，不是排名，也不是最終結果。同一家公司被提名多次，只代表它已被提名。
-            </p>
-            <NominationBoard stats={stats} />
-          </Band>
 
           <Band id="how" chip="How To Nominate" title="提名說明">
             <div className="grid g3">
@@ -180,7 +151,7 @@ export default function HomePhase1({
             </div>
           </Band>
         </div>
-      </BoardProvider>
+      </>
     </SiteChrome>
   );
 }
