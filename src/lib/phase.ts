@@ -33,9 +33,6 @@ export function phaseOneStats(stats: Stats): Stats {
   if (!isPhaseOne(stats.phase)) return stats;
   const {
     /* eslint-disable @typescript-eslint/no-unused-vars */
-    vote_open,
-    vote_close,
-    results_label,
     iqlite_url,
     ximu_url,
     partners_text,
@@ -43,8 +40,8 @@ export function phaseOneStats(stats: Stats): Stats {
     contact_email,
     ...rest
   } = stats;
-  // The later-phase keys are absent at runtime; nothing rendered in pre /
-  // nominate reads them.
+  // Product keys are absent at runtime. The schedule (vote dates, results
+  // label) stays: the owner asked for the full timeline on the phase-1 home.
   return {
     ...rest,
     contact_email: /ximu/i.test(contact_email) ? "" : contact_email,

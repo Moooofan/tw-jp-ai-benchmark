@@ -1,12 +1,11 @@
 import {
   ArrowRight,
-  Building2,
   CalendarDays,
   Info,
+  Megaphone,
   PartyPopper,
   Search,
   SquareCheckBig,
-  UserX,
   type LucideIcon,
 } from "lucide-react";
 import { dateRange } from "@/lib/format";
@@ -98,7 +97,7 @@ export default function HomePhase1({ stats }: { stats: Stats }) {
         </div>
 
         <div className="wrap">
-          <div className="sched" aria-label="提名概況">
+          <div className="sched" aria-label="時程安排">
             <div className={open ? "sc now" : "sc"}>
               <Icon icon={CalendarDays} />
               <span className="k">提名期間</span>
@@ -107,14 +106,16 @@ export default function HomePhase1({ stats }: { stats: Stats }) {
               </span>
             </div>
             <div className="sc">
-              <Icon icon={Building2} />
-              <span className="k">提名方式</span>
-              <span className="v">輸入公司名稱就完成</span>
+              <Icon icon={SquareCheckBig} />
+              <span className="k">投票期間</span>
+              <span className="v">
+                {dateRange(stats.vote_open, stats.vote_close)}
+              </span>
             </div>
             <div className="sc">
-              <Icon icon={UserX} />
-              <span className="k">不用註冊</span>
-              <span className="v">也不用留 Email</span>
+              <Icon icon={Megaphone} />
+              <span className="k">結果公布</span>
+              <span className="v">{stats.results_label}</span>
             </div>
           </div>
 
