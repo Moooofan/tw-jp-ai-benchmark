@@ -15,7 +15,7 @@ import {
   Flame,
   Minus,
 } from "lucide-react";
-import { hhmm, minutesAgo } from "@/lib/format";
+import { hhmm, isNameKey, minutesAgo } from "@/lib/format";
 import { getBrowserClient } from "@/lib/supabase-browser";
 import {
   EMPTY_BOARD,
@@ -141,7 +141,7 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
               <Favicon domain={c.domain} name={c.display_name} />
               <span className="co">
                 <b>{c.display_name}</b>
-                <small>{c.domain}</small>
+                <small>{isNameKey(c.domain) ? "官網待確認" : c.domain}</small>
               </span>
               <span className="ago">
                 {minutesAgo(c.first_nominated_at, ref)}

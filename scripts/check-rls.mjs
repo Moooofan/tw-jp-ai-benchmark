@@ -189,17 +189,41 @@ await allowed(
     JSON.stringify(data),
   );
 }
-// v6r: nominations need a 10–50 character reason. Only probes that fail are
-// sent through PostgREST; the success path runs inside a rolled-back DO block.
+/**
+ * Runs one `do $$ … raise exception 'ROLLBACK_OK' $$` statement through
+ * scripts/apply-sql.mjs: the statement always aborts, so nothing it wrote
+ * persists. PASS only when the ROLLBACK_OK marker comes back.
+ */
+function rollbackTest(name, sql) {
+  let out = "";
+  try {
+    out = execFileSync("node", ["scripts/apply-sql.mjs", "--sql", sql], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 120000,
+    });
+  } catch (e) {
+    out = String((e.stdout || "") + (e.stderr || "") || e.message);
+  }
+  const line =
+    out.split("\n").find((l) => /ROLLBACK_|_ACCEPTED|_BROKEN|_BAD/.test(l)) ??
+    out.trim().split("\n").slice(-1)[0];
+  record(name, /ROLLBACK_OK/.test(out), line?.trim());
+}
+
+// v6r + v6e-retire: nominations need a 10–50 character reason and an email;
+// the 2-arg and 3-arg overloads only tell stale tabs to reload. Only probes
+// that fail are sent through PostgREST; success paths run in rolled-back DO
+// blocks.
 {
   const { error } = await sb.rpc("nominate_company", {
     p_domain: "rls-probe.example",
     p_display_name: "rls-probe",
-    p_reason: "123456789",
+    p_reason: "這是三參數版本應該被拒絕的理由",
   });
   record(
-    "anon can call 3-arg nominate_company(); 9-char reason rejected",
-    !!error && error.message.includes("提名理由請寫 10 到 50 字。"),
+    "3-arg nominate_company() raises 提名方式已更新 (v6e-retire)",
+    !!error && error.message.includes("提名方式已更新，請重新整理頁面。"),
     error ? error.message : "unexpectedly succeeded",
   );
 }
@@ -215,56 +239,18 @@ await allowed(
   );
 }
 {
-  // As role anon inside one transaction: a valid reason is stored (trimmed),
-  // a 9-char reason and the 2-arg call raise, then everything rolls back.
-  const sql = `do $$
-declare j json; r text; e text;
-begin
-  execute 'set local role anon';
-  j := public.nominate_company('rls-probe.example', 'rls-probe', '  這是一個回滾測試用的提名理由  ');
-  begin
-    perform public.nominate_company('rls-probe.example', 'rls-probe', '123456789');
-    raise exception 'SHORT_REASON_ACCEPTED';
-  exception when others then
-    if sqlerrm not like '%10 到 50 字%' then raise; end if;
-  end;
-  begin
-    perform public.nominate_company('rls-probe.example', 'rls-probe');
-    raise exception 'OLD_SIGNATURE_ACCEPTED';
-  exception when others then
-    if sqlerrm not like '%提名方式已更新%' then raise; end if;
-  end;
-  execute 'reset role';
-  select nm.reason into r from public.nominations nm
-    where nm.domain = 'rls-probe.example' order by nm.id desc limit 1;
-  if j->>'domain' is distinct from 'rls-probe.example'
-     or r is distinct from '這是一個回滾測試用的提名理由' then
-    raise exception 'ROLLBACK_BAD reason=% json=%', r, j;
-  end if;
-  raise exception 'ROLLBACK_OK';
-end;
-$$`;
-  let out = "";
-  try {
-    out = execFileSync("node", ["scripts/apply-sql.mjs", "--sql", sql], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 120000,
-    });
-  } catch (e) {
-    out = String((e.stdout || "") + (e.stderr || "") || e.message);
-  }
-  const line =
-    out.split("\n").find((l) => /ROLLBACK_|SHORT_REASON|OLD_SIGNATURE/.test(l)) ??
-    out.trim().split("\n").slice(-1)[0];
+  const { error } = await sb.rpc("nominate_company", {
+    p_domain: "rls-probe.example",
+    p_display_name: "rls-probe",
+    p_reason: "123456789",
+    p_email: "rls-probe@example.com",
+  });
   record(
-    "rollback test: anon 3-arg nominate stores the reason",
-    /ROLLBACK_OK/.test(out),
-    line?.trim(),
+    "anon can call 4-arg nominate_company(); 9-char reason rejected",
+    !!error && error.message.includes("提名理由請寫 10 到 50 字。"),
+    error ? error.message : "unexpectedly succeeded",
   );
 }
-
-// ------------------------------------------------------------- v6e: email
 {
   // The 4-arg overload is callable by anon (no permission error) and an
   // invalid email is rejected before any write.
@@ -281,49 +267,154 @@ $$`;
   );
 }
 {
-  // As role anon inside one transaction: the 3-arg overload still works
-  // unchanged (v6e must be additive-only), and the new 4-arg overload stores
-  // a trimmed, lower-cased email. Everything rolls back at the end.
-  const sql = `do $$
-declare j3 json; j4 json; stored_email text;
+  // v6n: a blank website with a 1-character name is rejected before any write.
+  const { error } = await sb.rpc("nominate_company", {
+    p_domain: "",
+    p_display_name: " x ",
+    p_reason: "1234567890",
+    p_email: "rls-probe@example.com",
+  });
+  record(
+    "4-arg nominate_company(); blank website + 1-char name rejected (v6n)",
+    !!error && error.message.includes("請填寫公司名稱。"),
+    error ? error.message : "unexpectedly succeeded",
+  );
+}
+
+// As role anon: a valid reason is stored trimmed, a 9-char reason, the 2-arg
+// and the 3-arg calls raise, then everything rolls back.
+rollbackTest(
+  "rollback test: anon 4-arg nominate stores the reason; 2/3-arg raise",
+  `do $$
+declare j json; r text;
 begin
   execute 'set local role anon';
-  j3 := public.nominate_company('rls-probe.example', 'rls-probe', '這是三參數版本仍然可用的驗證理由');
-  j4 := public.nominate_company('rls-probe.example', 'rls-probe', '這是四參數版本寫入信箱的驗證理由', '  RLS-Probe@Example.COM ');
+  j := public.nominate_company('rls-probe.example', 'rls-probe', '  這是一個回滾測試用的提名理由  ', 'rls-probe@example.com');
+  begin
+    perform public.nominate_company('rls-probe.example', 'rls-probe', '123456789', 'rls-probe@example.com');
+    raise exception 'SHORT_REASON_ACCEPTED';
+  exception when others then
+    if sqlerrm not like '%10 到 50 字%' then raise; end if;
+  end;
+  begin
+    perform public.nominate_company('rls-probe.example', 'rls-probe');
+    raise exception 'OLD_SIGNATURE_ACCEPTED';
+  exception when others then
+    if sqlerrm not like '%提名方式已更新%' then raise; end if;
+  end;
+  begin
+    perform public.nominate_company('rls-probe.example', 'rls-probe', '這是三參數版本應該被拒絕的理由');
+    raise exception 'THREE_ARG_ACCEPTED';
+  exception when others then
+    if sqlerrm not like '%提名方式已更新%' then raise; end if;
+  end;
   execute 'reset role';
-  if j3->>'domain' is distinct from 'rls-probe.example' then
-    raise exception 'THREE_ARG_BROKEN json=%', j3;
-  end if;
-  select nm.email into stored_email from public.nominations nm
+  select nm.reason into r from public.nominations nm
     where nm.domain = 'rls-probe.example' order by nm.id desc limit 1;
-  if j4->>'domain' is distinct from 'rls-probe.example'
-     or stored_email is distinct from 'rls-probe@example.com' then
-    raise exception 'ROLLBACK_BAD email=% json=%', stored_email, j4;
+  if j->>'domain' is distinct from 'rls-probe.example'
+     or r is distinct from '這是一個回滾測試用的提名理由' then
+    raise exception 'ROLLBACK_BAD reason=% json=%', r, j;
   end if;
   raise exception 'ROLLBACK_OK';
 end;
-$$`;
-  let out = "";
-  try {
-    out = execFileSync("node", ["scripts/apply-sql.mjs", "--sql", sql], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 120000,
-    });
-  } catch (e) {
-    out = String((e.stdout || "") + (e.stderr || "") || e.message);
-  }
-  const line =
-    out
-      .split("\n")
-      .find((l) => /ROLLBACK_|THREE_ARG_BROKEN/.test(l)) ??
-    out.trim().split("\n").slice(-1)[0];
-  record(
-    "rollback test: 3-arg nominate_company unchanged; 4-arg stores lower/trimmed email (v6e)",
-    /ROLLBACK_OK/.test(out),
-    line?.trim(),
-  );
-}
+$$`,
+);
+
+// The domain path the deployed client uses is unchanged after v6n: a messy
+// URL normalises to the bare domain, a pending company is created and the
+// email is stored trimmed and lower-cased.
+rollbackTest(
+  "rollback test: 4-arg domain path unchanged; stores lower/trimmed email (v6e/v6n)",
+  `do $$
+declare j json; st text; stored_email text;
+begin
+  execute 'set local role anon';
+  j := public.nominate_company('HTTPS://www.RLS-Probe.example/about', 'rls-probe', '這是四參數版本寫入信箱的驗證理由', '  RLS-Probe@Example.COM ');
+  execute 'reset role';
+  select c.status into st from public.companies c where c.domain = 'rls-probe.example';
+  select nm.email into stored_email from public.nominations nm
+    where nm.domain = 'rls-probe.example' order by nm.id desc limit 1;
+  if j->>'domain' is distinct from 'rls-probe.example' or st is distinct from 'pending'
+     or stored_email is distinct from 'rls-probe@example.com' then
+    raise exception 'ROLLBACK_BAD email=% status=% json=%', stored_email, st, j;
+  end if;
+  raise exception 'ROLLBACK_OK';
+end;
+$$`,
+);
+
+// v6n (a): a blank website creates a pending name: company and a nomination.
+rollbackTest(
+  "rollback test: blank website creates a name: company + nomination (v6n)",
+  `do $$
+declare j json; st text; dn text; n int;
+begin
+  execute 'set local role anon';
+  j := public.nominate_company('   ', '  RLS   Probe Co ', '這是只有名稱沒有官網的回滾測試理由', 'rls-probe@example.com');
+  execute 'reset role';
+  select c.status, c.display_name into st, dn from public.companies c where c.domain = 'name:rls probe co';
+  select count(*) into n from public.nominations nm where nm.domain = 'name:rls probe co';
+  if j->>'domain' is distinct from 'name:rls probe co' or st is distinct from 'pending'
+     or dn is distinct from 'RLS Probe Co' or n <> 1 then
+    raise exception 'ROLLBACK_BAD status=% name=% n=% json=%', st, dn, n, j;
+  end if;
+  if not exists (select 1 from public.resolve_company('rls probe') r where r.domain = 'name:rls probe co') then
+    raise exception 'ROLLBACK_BAD resolve_company misses the name: company';
+  end if;
+  raise exception 'ROLLBACK_OK';
+end;
+$$`,
+);
+
+// v6n (b): the same name twice (other case / spacing, null website) reuses it.
+rollbackTest(
+  "rollback test: same name twice reuses the name: company (v6n)",
+  `do $$
+declare j1 json; j2 json; nc int; nn int;
+begin
+  execute 'set local role anon';
+  j1 := public.nominate_company(null, 'RLS Probe Co', '第一次只用名稱提名的回滾測試理由', 'rls-probe@example.com');
+  j2 := public.nominate_company('', 'rls  probe CO', '第二次同名但大小寫不同的測試理由', 'rls-probe-2@example.com');
+  execute 'reset role';
+  select count(*) into nc from public.companies c where c.domain = 'name:rls probe co';
+  select count(*) into nn from public.nominations nm where nm.domain = 'name:rls probe co';
+  if j1->>'domain' is distinct from 'name:rls probe co' or j2->>'domain' is distinct from 'name:rls probe co'
+     or j2->>'display_name' is distinct from 'RLS Probe Co' or nc <> 1 or nn <> 2 then
+    raise exception 'ROLLBACK_BAD companies=% nominations=% j1=% j2=%', nc, nn, j1, j2;
+  end if;
+  raise exception 'ROLLBACK_OK';
+end;
+$$`,
+);
+
+// v6n (c): with the phase forced to vote inside the transaction, a name:
+// company is a candidate: vote_candidates lists it, cast_ballot accepts it,
+// company_detail resolves the key.
+rollbackTest(
+  "rollback test: cast_ballot accepts a name: candidate in phase vote (v6n)",
+  `do $$
+declare b json; d json; ph text;
+begin
+  execute 'set local role anon';
+  perform public.nominate_company('', 'RLS Probe Co', '先用名稱提名再投票的回滾測試理由', 'rls-probe@example.com');
+  execute 'reset role';
+  update public.settings set phase_mode = 'manual', phase = 'vote' where id = 1;
+  ph := public.effective_phase();
+  execute 'set local role anon';
+  if not exists (select 1 from public.vote_candidates('rls probe') v where v.domain = 'name:rls probe co') then
+    raise exception 'ROLLBACK_BAD vote_candidates misses the name: company (phase=%)', ph;
+  end if;
+  b := public.cast_ballot('rls-probe@example.com', '[{"domain":"name:rls probe co","reason":"只有名稱的候選公司也可以被投票"}]'::jsonb);
+  d := public.company_detail('name:rls probe co');
+  execute 'reset role';
+  if ph is distinct from 'vote' or b->'picks'->0->>'domain' is distinct from 'name:rls probe co'
+     or d->>'domain' is distinct from 'name:rls probe co' or (d->>'votes')::int <> 1 then
+    raise exception 'ROLLBACK_BAD phase=% ballot=% detail=%', ph, b, d;
+  end if;
+  raise exception 'ROLLBACK_OK';
+end;
+$$`,
+);
 
 await allowed("anon can call board()", sb.rpc("board"));
 await denied(
@@ -509,6 +600,17 @@ record(
     "no probe company exists",
     data?.exists === false,
     JSON.stringify(data),
+  );
+}
+
+// …nor a name: company (v6n rollback tests).
+{
+  const { data, error } = await sb.rpc("resolve_company", { q: "rls probe co" });
+  const hits = (data ?? []).filter?.((r) => r.domain === "name:rls probe co") ?? [];
+  record(
+    "no probe name: company exists",
+    !error && hits.length === 0,
+    error ? error.message : `${hits.length} hit(s)`,
   );
 }
 

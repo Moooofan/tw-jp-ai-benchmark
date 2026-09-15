@@ -124,10 +124,28 @@ export function minutesAgo(iso: string, now: number = Date.now()): string {
 }
 
 /**
+ * Company key for a company nominated without a website (v6n), mirroring
+ * `public.company_name_key`: `name:` + the lower-cased, whitespace-collapsed
+ * name. Null when the name is not 2–60 characters.
+ */
+export function nameKey(name: string): string | null {
+  const n = name.replace(/\s+/g, " ").trim();
+  return n.length >= 2 && n.length <= 60 ? `name:${n.toLowerCase()}` : null;
+}
+
+/** True for a `name:` company key (official website not confirmed yet). */
+export function isNameKey(domain: string): boolean {
+  return domain.startsWith("name:");
+}
+
+/**
  * Official website -> canonical domain, mirroring `public.normalize_domain`
  * in the database (strip scheme, userinfo, path, port, `www.`; lower-case).
+ * A `name:` key passes through normalised, as in the database.
  */
 export function normalizeDomain(input: string): string {
+  const t = input.trim();
+  if (/^name:/i.test(t)) return nameKey(t.slice(5)) ?? "";
   return input
     .trim()
     .toLowerCase()

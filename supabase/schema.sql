@@ -2796,3 +2796,235 @@ revoke all on function public.nominate_company(text, text, text) from public, an
 grant execute on function public.nominate_company(text, text, text) to anon, authenticated;
 
 -- END v6e-retire
+
+-- v6n — nominate by name when the website is unknown, additive only.
+-- The 4-arg nominate_company(domain, name, reason, email) now accepts a
+-- null/blank p_domain: the company key becomes 'name:' || the lower-cased,
+-- whitespace-collapsed display name (status 'pending'). A given p_domain
+-- behaves exactly as in v6e. `name:` companies are ordinary companies
+-- everywhere else (resolver, board, vote, merge); admin merges them into a
+-- real domain once the official website is known. BEGIN v6n
+-- Apply statement by statement:  node scripts/apply-sql.mjs v6n
+-- ===========================================================================
+
+-- Name key for a company nominated without a website. NULL when the name is
+-- shorter than 2 or longer than 60 characters after trim + collapse.
+create or replace function public.company_name_key(p_name text)
+returns text
+language sql
+immutable
+set search_path = public
+as $$
+  select case
+    when char_length(btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'))) between 2 and 60
+      then 'name:' || lower(btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g')))
+  end;
+$$;
+
+-- Same as v6 for every real website. A `name:` key passes through (lower-cased,
+-- whitespace-collapsed) so company_detail / cast_ballot / reason_corpus accept
+-- it; valid_domain() still rejects it, so resolve_domain() and the domain
+-- path of nominate_company() are unchanged.
+create or replace function public.normalize_domain(p_url text)
+returns text
+language sql
+immutable
+set search_path = public
+as $$
+  select case
+    when lower(btrim(coalesce(p_url, ''))) like 'name:%' then
+      nullif('name:' || lower(btrim(regexp_replace(substr(btrim(p_url), 6), '\s+', ' ', 'g'))), 'name:')
+    else nullif(
+      regexp_replace(
+        regexp_replace(
+          regexp_replace(
+            regexp_replace(
+              regexp_replace(
+                lower(btrim(coalesce(p_url, ''))),
+                '^[a-z][a-z0-9+.-]*://', ''),
+              '[/?#\\].*$', ''),
+            '^[^@]*@', ''),
+          '(:[0-9]*)?\.?$', ''),
+        '^www\.', ''),
+      '')
+  end;
+$$;
+
+-- companies.domain is either a valid domain (the valid_domain() pattern) or
+-- a `name:` key (lower-case, trimmed, single spaces, 2–60 chars after the
+-- prefix). Inlined rather than calling the helpers, because a CHECK runs with
+-- the caller's privileges and admins update companies as `authenticated`.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'companies_domain_key_check'
+      and conrelid = 'public.companies'::regclass
+  ) then
+    alter table public.companies
+      add constraint companies_domain_key_check
+      check (
+        (char_length(domain) <= 253
+          and domain ~ '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$')
+        or (domain ~ '^name:\S'
+          and domain !~ '\s$'
+          and domain !~ '\s\s'
+          and domain !~ '[\t\n\r]'
+          and domain = lower(domain)
+          and char_length(domain) between 7 and 65)
+      );
+  end if;
+end;
+$$;
+
+-- Resolver: unchanged except that the domain-prefix match skips `name:` keys
+-- (typing "name" must not list every name-only company). `name:` companies
+-- are pending, so they are returned like any other company.
+create or replace function public.resolve_company(q text)
+returns table (domain text, display_name text, aliases text[])
+language sql
+stable
+security definer
+set search_path = public, extensions
+as $$
+  with t as (
+    select lower(btrim(coalesce(q, ''))) as k,
+           replace(replace(replace(lower(btrim(coalesce(q, ''))), '\', '\\'), '%', '\%'), '_', '\_') as p
+  )
+  select c.domain, c.display_name, c.aliases
+  from public.companies c, t
+  where t.k <> ''
+    and char_length(t.k) <= 80
+    and c.status <> 'hidden'
+    and c.merged_into is null
+    and (
+      lower(c.display_name) like '%' || t.p || '%'
+      or exists (select 1 from unnest(c.aliases) a where lower(a) like '%' || t.p || '%')
+      or (c.domain not like 'name:%' and c.domain like t.p || '%')
+      or (char_length(t.k) >= 3 and similarity(lower(c.display_name), t.k) > 0.3)
+    )
+  order by
+    (lower(c.display_name) = t.k
+      or exists (select 1 from unnest(c.aliases) a where lower(a) = t.k)) desc,
+    (lower(c.display_name) like t.p || '%') desc,
+    similarity(lower(c.display_name), t.k) desc,
+    c.display_name
+  limit 6;
+$$;
+
+-- v6e rules plus the name path. p_domain null/blank -> key from the name
+-- (2–60 chars, else 請填寫公司名稱。); merges are followed so a name that the
+-- admin already attached to a real domain lands on that company.
+create or replace function public.nominate_company(
+  p_domain text,
+  p_display_name text,
+  p_reason text,
+  p_email text
+)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_phase text := public.effective_phase();
+  v_by_name boolean := btrim(coalesce(p_domain, '')) = '';
+  v_domain text;
+  v_name text := left(regexp_replace(btrim(coalesce(p_display_name, '')), '\s+', ' ', 'g'), 60);
+  v_reason text := btrim(regexp_replace(coalesce(p_reason, ''), '\s+', ' ', 'g'));
+  v_email text := lower(btrim(coalesce(p_email, '')));
+  v_c public.companies;
+  v_hops int := 0;
+  v_limited boolean := false;
+begin
+  if v_phase = 'pre' then
+    raise exception '提名尚未開放。';
+  end if;
+  if v_phase is distinct from 'nominate' then
+    raise exception '提名期間已結束。';
+  end if;
+  if char_length(v_reason) not between 10 and 50 then
+    raise exception '提名理由請寫 10 到 50 字。';
+  end if;
+  if v_email !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請填寫正確的 Email。';
+  end if;
+  if v_by_name then
+    v_domain := public.company_name_key(p_display_name);
+    if v_domain is null then
+      raise exception '請填寫公司名稱。';
+    end if;
+    v_name := btrim(regexp_replace(coalesce(p_display_name, ''), '\s+', ' ', 'g'));
+  else
+    v_domain := public.normalize_domain(p_domain);
+    if not public.valid_domain(v_domain) then
+      raise exception '請輸入正確的官方網站，例如 https://example.com';
+    end if;
+  end if;
+
+  select * into v_c from public.companies c where c.domain = v_domain;
+  while v_c.merged_into is not null and v_hops < 5 loop
+    select * into v_c from public.companies c where c.domain = v_c.merged_into;
+    v_hops := v_hops + 1;
+  end loop;
+
+  if v_c.domain is null and v_name = '' then
+    raise exception '請輸入公司名稱。';
+  end if;
+
+  if v_uid is not null and (
+    select count(*) from public.nominations n
+    where n.session_id = v_uid and n.created_at > now() - interval '1 hour'
+  ) >= 20 then
+    v_limited := true;
+  end if;
+  if v_c.domain is not null and (
+    select count(*) from public.nominations n
+    where n.domain = v_c.domain and n.created_at > now() - interval '1 hour'
+  ) >= 200 then
+    v_limited := true;
+  end if;
+
+  if v_limited then
+    return json_build_object(
+      'domain', coalesce(v_c.domain, v_domain),
+      'display_name', coalesce(v_c.display_name, v_name),
+      'aliases', to_json(coalesce(v_c.aliases, '{}'::text[])),
+      'ok', true
+    );
+  end if;
+
+  if v_c.domain is null then
+    insert into public.companies (domain, display_name, status)
+    values (v_domain, v_name, 'pending')
+    on conflict (domain) do nothing;
+    select * into v_c from public.companies c where c.domain = v_domain;
+  end if;
+
+  insert into public.nominations (domain, session_id, typed_name, reason, email)
+  values (v_c.domain, v_uid, nullif(v_name, ''), v_reason, v_email);
+
+  return json_build_object(
+    'domain', v_c.domain,
+    'display_name', v_c.display_name,
+    'aliases', to_json(v_c.aliases),
+    'ok', true
+  );
+end;
+$$;
+
+revoke all on function public.company_name_key(text) from public, anon, authenticated;
+
+revoke all on function public.normalize_domain(text) from public, anon, authenticated;
+
+revoke all on function public.resolve_company(text) from public, anon, authenticated;
+
+revoke all on function public.nominate_company(text, text, text, text) from public, anon, authenticated;
+
+grant execute on function public.resolve_company(text) to anon, authenticated;
+
+grant execute on function public.nominate_company(text, text, text, text) to anon, authenticated;
+
+-- END v6n

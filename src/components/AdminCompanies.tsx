@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { downloadCsv, normalizeDomain, stampToday, toCsv } from "@/lib/format";
+import {
+  downloadCsv,
+  isNameKey,
+  normalizeDomain,
+  stampToday,
+  toCsv,
+} from "@/lib/format";
 import { errText, getBrowserClient } from "@/lib/supabase-browser";
 import type { AdminCompany, AdminNomination } from "@/lib/types";
 
@@ -47,6 +53,8 @@ const fmt = (iso: string | null) =>
 /**
  * 公司與提名 (spec v6 §6): companies with raw nomination counts, inline edit,
  * merge, seed CSV import (domain,display_name,aliases separated by |), export.
+ * `name:` companies (nominated without a website, v6n) carry a 待確認官網
+ * badge and can be filtered; attach them to a real domain with 合併.
  */
 export default function AdminCompanies({
   onError,
@@ -61,6 +69,7 @@ export default function AdminCompanies({
   const [msg, setMsg] = useState("");
   const [noms, setNoms] = useState<AdminNomination[]>([]);
   const [nomFilter, setNomFilter] = useState("");
+  const [onlyNameKeys, setOnlyNameKeys] = useState(false);
 
   const load = useCallback(async () => {
     const [stats, list] = await Promise.all([
@@ -72,6 +81,11 @@ export default function AdminCompanies({
     if (list.error) onError(errText(list.error));
     else setNoms((list.data as AdminNomination[] | null) ?? []);
   }, [supabase, onError]);
+
+  const nameKeyCount = rows.filter((r) => isNameKey(r.domain)).length;
+  const shownRows = onlyNameKeys
+    ? rows.filter((r) => isNameKey(r.domain))
+    : rows;
 
   const shownNoms = nomFilter
     ? noms.filter((n) => n.domain === nomFilter)
@@ -230,6 +244,14 @@ export default function AdminCompanies({
         <button className="abtn" type="button" onClick={exportCsv}>
           匯出 CSV
         </button>
+        <label className="note">
+          <input
+            type="checkbox"
+            checked={onlyNameKeys}
+            onChange={(e) => setOnlyNameKeys(e.target.checked)}
+          />{" "}
+          只顯示待確認官網（{nameKeyCount}）
+        </label>
         {msg ? <span className="note">{msg}</span> : null}
       </div>
 
@@ -248,7 +270,7 @@ export default function AdminCompanies({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {shownRows.map((r) => (
               <tr key={r.domain}>
                 <td>
                   <input
@@ -277,6 +299,9 @@ export default function AdminCompanies({
                 </td>
                 <td>
                   {r.domain}
+                  {isNameKey(r.domain) ? (
+                    <span className="abadge">待確認官網</span>
+                  ) : null}
                   {r.merged_into ? (
                     <div className="note">→ {r.merged_into}</div>
                   ) : null}
@@ -407,6 +432,7 @@ export default function AdminCompanies({
             <option value="">選擇一個</option>
             {rows.map((r) => (
               <option key={r.domain} value={r.domain}>
+                {isNameKey(r.domain) ? "【待確認官網】" : ""}
                 {r.display_name}（{r.domain}）
               </option>
             ))}

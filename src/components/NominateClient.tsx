@@ -8,10 +8,11 @@ import {
   Globe,
   Mail,
   PenLine,
+  Plus,
   RotateCcw,
   Search,
 } from "lucide-react";
-import { monthDay } from "@/lib/format";
+import { isNameKey, monthDay, nameKey } from "@/lib/format";
 import { errText, getBrowserClient } from "@/lib/supabase-browser";
 import type { CompanyMatch, Stats } from "@/lib/types";
 import Favicon from "./Favicon";
@@ -30,36 +31,50 @@ const EMAIL_ERR = "請填寫正確的 Email。";
 /** Same normalisation as nominate_company(): collapse whitespace, trim. */
 const cleanReason = (s: string) => s.replace(/\s+/g, " ").trim();
 
+/** Same normalisation as the name key: collapse whitespace, trim. */
+const cleanName = (s: string) => s.replace(/\s+/g, " ").trim();
+const NAME_MIN = 2;
+
+/**
+ * `typed`: the company was not in the list and is nominated by its typed name
+ * (v6n) — the website is optional and the database keys it as `name:…`.
+ */
 type Step =
   | { kind: "search" }
-  | { kind: "confirm"; company: CompanyMatch; viaSite: boolean }
+  | { kind: "confirm"; company: CompanyMatch; typed: boolean }
   | { kind: "done"; company: CompanyMatch; reason: string };
 
 function CompanyCard({ c }: { c: CompanyMatch }) {
+  const pending = isNameKey(c.domain);
   return (
     <div className="cocard">
       <Favicon domain={c.domain} name={c.display_name} size={44} />
       <div>
         <b>{c.display_name}</b>
         {c.aliases.length > 0 ? <small>{c.aliases.join(" · ")}</small> : null}
-        <a
-          href={`https://${c.domain}`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {c.domain}
-          <ExternalLink size={14} strokeWidth={1.75} aria-hidden="true" />
-        </a>
+        {pending ? (
+          <small>官網待確認</small>
+        ) : (
+          <a
+            href={`https://${c.domain}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {c.domain}
+            <ExternalLink size={14} strokeWidth={1.75} aria-hidden="true" />
+          </a>
+        )}
       </div>
     </div>
   );
 }
 
 /**
- * `/nominate` (spec v6 §4): company name + email -> pick a match (or give the
- * official website) -> confirm + 10–50 character reason -> done. No cap. The
- * reason requirement (v6r) overrides the v6 spec's "no reason"; the email
- * field (v6e) is required but never verified and never made public.
+ * `/nominate` (spec v6 §4): company name + email -> pick a match (or nominate
+ * the typed name directly, website optional, v6n) -> confirm + 10–50
+ * character reason -> done. No cap. The reason requirement (v6r) overrides the
+ * v6 spec's "no reason"; the email field (v6e) is required but never verified
+ * and never made public.
  */
 export default function NominateClient({
   stats,
@@ -74,14 +89,12 @@ export default function NominateClient({
   const [site, setSite] = useState("");
   const [matches, setMatches] = useState<CompanyMatch[]>([]);
   const [searched, setSearched] = useState("");
-  const [showSite, setShowSite] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("");
   const [email, setEmail] = useState("");
   const [emailErr, setEmailErr] = useState("");
   const nameInput = useRef<HTMLInputElement>(null);
-  const siteInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setEmail(readSavedEmail());
@@ -107,37 +120,20 @@ export default function NominateClient({
     };
   }, [name, supabase]);
 
-  const noMatch =
-    searched !== "" && searched === name.trim() && matches.length === 0;
-  const siteOpen = showSite || noMatch;
+  // Offer "nominate the typed name" once results for exactly this text are
+  // back and none of them is an exact display name / alias match.
+  const typed = cleanName(name);
+  const typedLower = typed.toLowerCase();
+  const offerTyped =
+    typed.length >= NAME_MIN &&
+    searched === name.trim() &&
+    !matches.some(
+      (m) =>
+        cleanName(m.display_name).toLowerCase() === typedLower ||
+        m.aliases.some((a) => cleanName(a).toLowerCase() === typedLower),
+    );
 
-  async function resolveSite(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) {
-      setErr("請先輸入公司名稱。");
-      nameInput.current?.focus();
-      return;
-    }
-    if (!site.trim()) {
-      setErr("請輸入官方網站。");
-      siteInput.current?.focus();
-      return;
-    }
-    setErr("");
-    setBusy(true);
-    const { data, error } = await supabase.rpc("resolve_domain", {
-      url: site.trim(),
-      name: name.trim(),
-    });
-    setBusy(false);
-    if (error) {
-      setErr(errText(error));
-      return;
-    }
-    setStep({ kind: "confirm", company: data as CompanyMatch, viaSite: true });
-  }
-
-  async function nominate(c: CompanyMatch) {
+  async function nominate(c: CompanyMatch, typedStep: boolean) {
     const r = cleanReason(reason);
     const em = email.trim();
     if (!EMAIL_RE.test(em)) {
@@ -146,9 +142,22 @@ export default function NominateClient({
     }
     setErr("");
     setBusy(true);
+    // A `name:` company (typed now, or picked from the list) is sent with no
+    // domain: the database derives the key from the name (a website typed on
+    // the confirm step is sent instead). For a listed one, send a name that
+    // maps back to the same key.
+    let pDomain: string | null = c.domain;
+    let pName = name.trim() || c.display_name;
+    if (isNameKey(c.domain)) {
+      pDomain = typedStep ? site.trim() || null : null;
+      pName =
+        nameKey(c.display_name) === c.domain
+          ? c.display_name
+          : c.domain.slice("name:".length);
+    }
     const { data, error } = await supabase.rpc("nominate_company", {
-      p_domain: c.domain,
-      p_display_name: name.trim() || c.display_name,
+      p_domain: pDomain,
+      p_display_name: pName,
       p_reason: r,
       p_email: em,
     });
@@ -176,7 +185,6 @@ export default function NominateClient({
     setSite("");
     setMatches([]);
     setSearched("");
-    setShowSite(false);
     setReason("");
     setErr("");
     setEmailErr("");
@@ -235,12 +243,34 @@ export default function NominateClient({
     const emailOk = EMAIL_RE.test(email.trim());
     body = (
       <div className="flow">
-        <h3>是這家公司嗎？</h3>
+        <h3>{step.typed ? "提名這家公司" : "是這家公司嗎？"}</h3>
         <CompanyCard c={c} />
-        {step.viaSite ? (
-          <p className="fine">
-            我們會以官方網站辨識公司，名稱之後可能統一為市場常用的品牌名。
-          </p>
+        {step.typed ? (
+          <>
+            <p className="fine">我們會再確認這家公司的官方網站。</p>
+            <div className="f">
+              <label htmlFor="site">
+                <Icon icon={Globe} />
+                官方網站（選填）
+              </label>
+              <input
+                id="site"
+                value={site}
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                placeholder="https://"
+                aria-describedby="site-hint"
+                onChange={(e) => {
+                  setSite(e.target.value);
+                  setErr("");
+                }}
+              />
+              <p id="site-hint" className="fine">
+                知道的話填一下，能幫我們更快辨識。
+              </p>
+            </div>
+          </>
         ) : null}
         <div className="f">
           <label htmlFor="reason">
@@ -274,7 +304,7 @@ export default function NominateClient({
             type="button"
             className="btn btn--red"
             disabled={busy || !reasonOk || !emailOk}
-            onClick={() => void nominate(c)}
+            onClick={() => void nominate(c, step.typed)}
           >
             {busy ? "提名中…" : "送出提名"}
           </button>
@@ -284,6 +314,7 @@ export default function NominateClient({
             disabled={busy}
             onClick={() => {
               setStep({ kind: "search" });
+              setSite("");
               setErr("");
             }}
           >
@@ -341,14 +372,14 @@ export default function NominateClient({
           {emailErr ? <p className="err">{emailErr}</p> : null}
         </div>
 
-        {matches.length > 0 ? (
+        {matches.length > 0 || offerTyped ? (
           <ul className="matches" aria-label="搜尋結果">
             {matches.map((m) => (
               <li key={m.domain}>
                 <button
                   type="button"
                   onClick={() =>
-                    setStep({ kind: "confirm", company: m, viaSite: false })
+                    setStep({ kind: "confirm", company: m, typed: false })
                   }
                 >
                   <Favicon domain={m.domain} name={m.display_name} />
@@ -358,61 +389,42 @@ export default function NominateClient({
                       <small>{m.aliases.join(" · ")}</small>
                     ) : null}
                   </span>
-                  <span className="dom">{m.domain}</span>
+                  <span className="dom">
+                    {isNameKey(m.domain) ? "官網待確認" : m.domain}
+                  </span>
                 </button>
               </li>
             ))}
-          </ul>
-        ) : null}
-
-        {noMatch ? (
-          <p className="fine">
-            輸入它的官方網站，我們會用網域辨識是哪一家公司。
-          </p>
-        ) : null}
-
-        {!siteOpen && name.trim() ? (
-          <button
-            type="button"
-            className="linkish"
-            onClick={() => setShowSite(true)}
-          >
-            列表裡沒有
-          </button>
-        ) : null}
-
-        {siteOpen ? (
-          <form className="siteform" noValidate onSubmit={resolveSite}>
-            <div className="f">
-              <label htmlFor="site">
-                <Icon icon={Globe} />
-                官方網站
-              </label>
-              <div className="inline">
-                <input
-                  id="site"
-                  ref={siteInput}
-                  value={site}
-                  type="url"
-                  inputMode="url"
-                  autoComplete="off"
-                  placeholder="https://"
-                  onChange={(e) => {
-                    setSite(e.target.value);
-                    setErr("");
-                  }}
-                />
+            {offerTyped ? (
+              <li>
                 <button
-                  className="btn btn--brand"
-                  type="submit"
-                  disabled={busy}
+                  type="button"
+                  onClick={() =>
+                    setStep({
+                      kind: "confirm",
+                      company: {
+                        domain: nameKey(typed) ?? "name:",
+                        display_name: typed,
+                        aliases: [],
+                      },
+                      typed: true,
+                    })
+                  }
                 >
-                  {busy ? "查詢中…" : "下一步"}
-                  <Icon icon={ArrowRight} />
+                  <span
+                    className="fav fav--none"
+                    style={{ width: 28, height: 28 }}
+                    aria-hidden="true"
+                  >
+                    <Plus size={16} strokeWidth={2} />
+                  </span>
+                  <span className="co">
+                    <b>找不到？直接提名「{typed}」</b>
+                  </span>
                 </button>
-              </div>
-            </div>
-          </form>
+              </li>
+            ) : null}
+          </ul>
         ) : null}
 
         {err ? <p className="err">{err}</p> : null}

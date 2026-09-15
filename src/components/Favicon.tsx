@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { faviconUrl } from "@/lib/format";
+import { faviconUrl, isNameKey } from "@/lib/format";
 
 /**
  * Company favicon via Google's s2 service as a plain <img>, with a neutral
  * initial square when it fails (also catches a failure that happened before
- * hydration attached the handler).
+ * hydration attached the handler). A `name:` company (no official website
+ * yet, v6n) always gets the initial square and never requests a favicon.
  */
 export default function Favicon({
   domain,
@@ -26,10 +27,10 @@ export default function Favicon({
   }, []);
 
   const style = { width: size, height: size };
-  if (failed) {
+  if (failed || isNameKey(domain)) {
     return (
       <span className="fav fav--none" style={style} aria-hidden="true">
-        {(name.trim()[0] ?? domain[0] ?? "?").toUpperCase()}
+        {(name.trim()[0] ?? "?").toUpperCase()}
       </span>
     );
   }

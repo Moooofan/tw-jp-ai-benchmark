@@ -6,6 +6,7 @@ import {
   Trophy,
   Vote,
 } from "lucide-react";
+import { isNameKey } from "@/lib/format";
 import type { CloudWord } from "@/lib/wordcloud";
 import type { CompanyDetail, Stats } from "@/lib/types";
 import Band from "./Band";
@@ -45,14 +46,18 @@ export default function CompanyPage({
               <span className="chip">Company</span>
               <h1>{detail.display_name}</h1>
               <p className="cohero__meta">
-                <a
-                  href={`https://${detail.domain}`}
-                  target="_blank"
-                  rel="nofollow noopener"
-                >
-                  {detail.domain}
-                  <ExternalLink size={14} strokeWidth={1.75} aria-hidden="true" />
-                </a>
+                {isNameKey(detail.domain) ? (
+                  <span>官網待確認</span>
+                ) : (
+                  <a
+                    href={`https://${detail.domain}`}
+                    target="_blank"
+                    rel="nofollow noopener"
+                  >
+                    {detail.domain}
+                    <ExternalLink size={14} strokeWidth={1.75} aria-hidden="true" />
+                  </a>
+                )}
                 {detail.aliases.length > 0 ? (
                   <span>也稱為：{detail.aliases.join(" · ")}</span>
                 ) : null}
