@@ -6,7 +6,7 @@ export const DISCLAIMER =
   "本活動反映社群關注與市場認知，不構成企業赴日業績的客觀排名。";
 export const WORDMARK = "AI Representation Benchmark";
 
-/** Header CTA by phase (spec v3 §6). */
+/** Header CTA by phase (spec v5). */
 export function headerCta(phase: Phase): { label: string; href: string } {
   if (phase === "nominate") return { label: "開始提名", href: "/nominate" };
   if (phase === "vote") return { label: "立即投票", href: "/vote" };
@@ -14,85 +14,76 @@ export function headerCta(phase: Phase): { label: string; href: string } {
 }
 
 /**
- * Utility row + masthead + colophon, identical on every public page. The
- * anchors are absolute (`/#how`) so they also work from `/nominate` and
- * `/vote`.
+ * Sticky header + brand footer, identical on every public page. Anchors are
+ * absolute (`/#how`) so they also work from `/nominate` and `/vote`. Children
+ * decide their own width: the hero is full-bleed, sections sit in `.wrap`.
  */
 export default function SiteChrome({
   stats,
+  home = false,
   children,
 }: {
   stats: Stats;
+  /** Marks 首頁 as the current page. */
+  home?: boolean;
   children: ReactNode;
 }) {
   const cta = headerCta(stats.phase);
   return (
     <>
-      <div className="wrap">
-        <div className="util">
-          <div>
-            <span>2026 年 9 月</span>
-            <span>第 1 期 · 台灣 → 日本</span>
-          </div>
-          <div>
-            <span className="lang-on">繁體中文</span>
-            <span>English</span>
-          </div>
-        </div>
-
-        <header className="mast">
-          <div className="mast__mark">
-            <span className="mast__bars" aria-hidden="true">
+      <header className="top">
+        <div className="wrap">
+          <Link className="brand" href="/">
+            <span className="bars" aria-hidden="true">
               <i />
               <i />
               <i />
             </span>
-            <div className="mast__word">
+            <span className="word">
               {WORDMARK}
               <small>Taiwan → Japan · 2026</small>
-            </div>
-          </div>
-          <nav>
+            </span>
+          </Link>
+          <nav className="nav">
+            <Link
+              className={home ? "on" : undefined}
+              href="/"
+              aria-current={home ? "page" : undefined}
+            >
+              首頁
+            </Link>
+            <Link href="/#background">前情提要</Link>
             <Link href="/#how">活動方式</Link>
-            <Link href="/nominate">提名</Link>
             <Link href="/#rules">規則與方法</Link>
             <Link href="/#faq">FAQ</Link>
+            <Link className="btn btn--red btn--sm" href={cta.href}>
+              {cta.label}
+            </Link>
           </nav>
-          <Link className="cta cta--fill" href={cta.href}>
-            {cta.label}
-          </Link>
-        </header>
+        </div>
+      </header>
 
-        {children}
-      </div>
+      <main>{children}</main>
 
-      <footer>
-        <div className="wrap colo">
+      <footer className="foot">
+        <div className="wrap">
           <div>
-            <p className="word">{WORDMARK} · Taiwan → Japan 2026</p>
+            <div className="foot-big">
+              TAIWAN <span>→</span> JAPAN 2026
+            </div>
             <p>{DISCLAIMER}</p>
-          </div>
-          <div className="colo__meta">
-            <div>
+            {stats.contact_email ? (
               <p>
-                <Link href="/#rules">規則與方法</Link>
+                聯絡：
+                <a href={`mailto:${stats.contact_email}`}>{stats.contact_email}</a>
               </p>
-              <p>
-                <Link href="/#faq">FAQ</Link>
-              </p>
-            </div>
-            <div>
-              {stats.contact_email ? (
-                <p>
-                  聯絡：
-                  <a href={`mailto:${stats.contact_email}`}>
-                    {stats.contact_email}
-                  </a>
-                </p>
-              ) : null}
-              <p>© 2026 ximu</p>
-            </div>
+            ) : null}
           </div>
+          <nav>
+            <Link href="/#rules">規則與方法</Link>
+            <Link href="/#faq">FAQ</Link>
+            <span>© 2026 ximu</span>
+          </nav>
         </div>
       </footer>
     </>

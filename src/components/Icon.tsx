@@ -1,24 +1,22 @@
 import type { LucideIcon } from "lucide-react";
 
 /**
- * The ONE icon treatment on the public site (spec v4 §B): lucide line icons,
- * 20px inline (24px only for the four step cards), 1.5px absolute stroke,
- * brand colour via `.ico`, always decorative — every icon sits beside text
- * that already says the same thing.
+ * The one icon treatment (spec v5): lucide line icons, stroke 1.5, brand
+ * colour via `.ico`. 22px inline, 30px (`lg`) in card header rows. Always
+ * decorative — every icon sits beside text that already says the same thing.
  */
 export default function Icon({
   icon: Glyph,
-  size = 20,
+  lg = false,
 }: {
   icon: LucideIcon;
-  size?: 20 | 24;
+  lg?: boolean;
 }) {
   return (
     <Glyph
-      className="ico"
-      size={size}
+      className={lg ? "ico ico--lg" : "ico"}
+      size={lg ? 30 : 22}
       strokeWidth={1.5}
-      absoluteStrokeWidth
       aria-hidden="true"
       focusable="false"
     />

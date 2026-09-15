@@ -7,7 +7,7 @@ import type { MyState, PublicPost } from "@/lib/types";
 import type { useParticipantEmail } from "./ParticipantEmail";
 
 /**
- * The "letters" list of recent nominations. Used twice: six entries on `/`,
+ * Recent nominations as a 3-col card grid (spec v5). Used twice: six entries on `/`,
  * the full paged list on `/nominate#recent`. 附議 / 存疑 write `votes` through
  * the unchanged `cast_vote` RPC and only ever show the caller's own state.
  */
@@ -52,24 +52,24 @@ export default function Letters({
   }
 
   return (
-    <div>
+    <div className="grid g3">
       {posts.map((p) => (
-        <article className="letter" key={p.id}>
-          <div>
-            <p className="who">
-              <b>{p.company}</b>
-              {p.company_en ? <span className="en">{p.company_en}</span> : null}
-              {" · 投書："}
-              {p.masked_email}
-              {" · "}
-              {monthDay(p.created_at)}
-            </p>
-            <p className="body">{p.reason}</p>
+        <article className="card letter" key={p.id}>
+          <div className="no">
+            <span>
+              投書：{p.masked_email} · {monthDay(p.created_at)}
+            </span>
           </div>
+          <h3>
+            {p.company}
+            {p.company_en ? <span className="en">{p.company_en}</span> : null}
+          </h3>
+          <p>{p.reason}</p>
           <div className="endorse">
             <button
               type="button"
               className={votes[p.id] === 1 ? "on" : ""}
+              aria-pressed={votes[p.id] === 1}
               onClick={() => endorse(p, 1)}
             >
               附議
@@ -77,6 +77,7 @@ export default function Letters({
             <button
               type="button"
               className={votes[p.id] === -1 ? "doubt on" : "doubt"}
+              aria-pressed={votes[p.id] === -1}
               onClick={() => endorse(p, -1)}
             >
               存疑

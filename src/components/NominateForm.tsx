@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  ArrowRight,
+  Link as LinkIcon,
+  MapPin,
+  MessageSquareText,
+  UserCheck,
+} from "lucide-react";
 import { errText, getBrowserClient } from "@/lib/supabase-browser";
+import Icon from "./Icon";
 import type { useParticipantEmail } from "./ParticipantEmail";
 
 const SUGGEST_MS = 250;
@@ -9,7 +17,7 @@ const REASON_MIN = 60;
 const REASON_MAX = 200;
 
 /**
- * The five numbered fields, unchanged. Submits through the existing
+ * The five numbered fields, unchanged (spec v5 adds the checklist icons). Submits through the existing
  * `nominate(p_company, p_company_en, p_url, p_reason, p_email)` RPC and the
  * unchanged anonymous-session + email dedupe flow (`identity.require`).
  */
@@ -101,6 +109,7 @@ export default function NominateForm({
     <form className="form" noValidate onSubmit={submit}>
       <div className="f">
         <label htmlFor="zh">
+          <Icon icon={MapPin} />
           <span className="n">01</span>公司中文名稱
         </label>
         <input
@@ -133,6 +142,7 @@ export default function NominateForm({
       </div>
       <div className="f">
         <label htmlFor="en">
+          <Icon icon={MapPin} />
           <span className="n">02</span>公司英文名稱
         </label>
         <input
@@ -146,6 +156,7 @@ export default function NominateForm({
       </div>
       <div className="f full">
         <label htmlFor="url">
+          <Icon icon={LinkIcon} />
           <span className="n">03</span>官方網址
         </label>
         <input
@@ -161,6 +172,7 @@ export default function NominateForm({
       </div>
       <div className="f full">
         <label htmlFor="why">
+          <Icon icon={MessageSquareText} />
           <span className="n">04</span>提名理由
         </label>
         <textarea
@@ -182,6 +194,7 @@ export default function NominateForm({
       </div>
       <div className="f full">
         <label htmlFor="mail">
+          <Icon icon={UserCheck} />
           <span className="n">05</span>你的 Email
         </label>
         <input
@@ -201,8 +214,9 @@ export default function NominateForm({
         {err ? <p className="err">{err}</p> : null}
       </div>
       <div className="form__foot">
-        <button className="cta cta--fill" type="submit" disabled={busy}>
+        <button className="btn btn--red" type="submit" disabled={busy}>
           {busy ? "送出中…" : "送出提名"}
+          <Icon icon={ArrowRight} />
         </button>
       </div>
     </form>

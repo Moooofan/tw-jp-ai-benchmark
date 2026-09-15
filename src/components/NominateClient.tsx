@@ -3,14 +3,14 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BuildingComplex, Link as LinkIcon, TextAlignStart } from "lucide-react";
+import { Link as LinkIcon, MapPin, MessageSquareText } from "lucide-react";
 import { dateRange, monthDay } from "@/lib/format";
 import type { PublicPost, Stats } from "@/lib/types";
 import Icon from "./Icon";
 import { useParticipantEmail } from "./ParticipantEmail";
+import Band from "./Band";
 import Letters from "./Letters";
 import NominateForm from "./NominateForm";
-import Section from "./SectionGrid";
 import ShareRow from "./ShareRow";
 import SiteChrome, { DISCLAIMER } from "./SiteChrome";
 
@@ -71,69 +71,66 @@ export default function NominateClient({
             body: `投票已結束。結果預計於 ${stats.results_label} 公布。`,
           };
 
+  const checklist = (
+    <ul className="checks">
+      <li>
+        <Icon icon={MapPin} />
+        公司中英文名稱
+      </li>
+      <li>
+        <Icon icon={LinkIcon} />
+        官方網址
+      </li>
+      <li>
+        <Icon icon={MessageSquareText} />
+        60–200 字的提名理由
+      </li>
+    </ul>
+  );
+
   return (
     <>
       <SiteChrome stats={stats}>
-        {stats.phase !== "nominate" ? (
-          <Section title={notice.title}>
-            <p className="empty">{notice.body}</p>
-            <p className="note">
-              <Link className="tbtn" href="/">
-                回到首頁
-              </Link>
-            </p>
-          </Section>
-        ) : (
-          <>
-            <Section
-              id="form"
-              title="提名台灣新創"
-              sticky
-              narrow
-              lede="每人最多提名三家公司。"
-              aside={
-                <ul className="checklist">
-                  <li className="irow">
-                    <Icon icon={BuildingComplex} />
-                    <span>公司中英文名稱</span>
-                  </li>
-                  <li className="irow">
-                    <Icon icon={LinkIcon} />
-                    <span>官方網址</span>
-                  </li>
-                  <li className="irow">
-                    <Icon icon={TextAlignStart} />
-                    <span>60–200 字的提名理由</span>
-                  </li>
-                </ul>
-              }
-            >
-              <p className="intro">
-                提名期間 {dateRange(stats.nominate_open, stats.nominate_close)}
-                <br />
-                {DISCLAIMER}
-              </p>
-              {done ? (
-                <div className="thanks">
-                  <h3>感謝參與。</h3>
-                  <p>結果預計於 {stats.results_label}公布。</p>
-                  <ShareRow />
-                  <div className="after">
-                    {used < QUOTA ? (
-                      <button
-                        type="button"
-                        className="tbtn"
-                        onClick={() => setDone(false)}
-                      >
-                        再提名一家
-                      </button>
-                    ) : null}
-                    <Link className="tbtn" href="/">
-                      回到首頁
-                    </Link>
-                  </div>
+        <div className="pagehero">
+          <div className="wrap">
+            <span className="chip">Nominate</span>
+            <h1>提名台灣新創</h1>
+            <p>每人最多提名三家公司。</p>
+          </div>
+        </div>
+
+        <div className="wrap">
+          <div className="split" id="form">
+            {stats.phase !== "nominate" ? (
+              <div className="formcard">
+                <h3>{notice.title}</h3>
+                <p>{notice.body}</p>
+                <Link className="btn btn--ghost" href="/">
+                  回到首頁
+                </Link>
+              </div>
+            ) : done ? (
+              <div className="formcard thanks">
+                <h3>感謝參與。</h3>
+                <p>結果預計於 {stats.results_label}公布。</p>
+                <ShareRow />
+                <div className="after">
+                  {used < QUOTA ? (
+                    <button
+                      type="button"
+                      className="btn btn--brand"
+                      onClick={() => setDone(false)}
+                    >
+                      再提名一家
+                    </button>
+                  ) : null}
+                  <Link className="btn btn--ghost" href="/">
+                    回到首頁
+                  </Link>
                 </div>
-              ) : (
+              </div>
+            ) : (
+              <div className="formcard">
                 <NominateForm
                   identity={identity}
                   onDone={(company, email) => {
@@ -142,10 +139,24 @@ export default function NominateClient({
                     router.refresh();
                   }}
                 />
-              )}
-            </Section>
+              </div>
+            )}
 
-            <Section id="recent" title="社群最近提名" narrow>
+            <aside className="side">
+              <span className="k">提名期間</span>
+              <span className="v">
+                {dateRange(stats.nominate_open, stats.nominate_close)}
+              </span>
+              <hr />
+              {checklist}
+              <hr />
+              <p className="fine">Email 僅用於去重，不公開、不作行銷使用。</p>
+              <p className="fine">{DISCLAIMER}</p>
+            </aside>
+          </div>
+
+          {stats.phase === "nominate" ? (
+            <Band id="recent" chip="Community" title="社群最近提名">
               {sorted.length === 0 ? (
                 <p className="empty">目前還沒有公開的提名。</p>
               ) : (
@@ -154,7 +165,7 @@ export default function NominateClient({
               {sorted.length > shown ? (
                 <div className="more">
                   <button
-                    className="cta"
+                    className="btn btn--ghost"
                     type="button"
                     onClick={() => setShown((s) => s + PAGE)}
                   >
@@ -165,9 +176,9 @@ export default function NominateClient({
               <p className="note">
                 提名經主辦團隊清理與資格檢查後，才會成為第二階段的正式選項。第一階段不公開即時排名或逐名票數。
               </p>
-            </Section>
-          </>
-        )}
+            </Band>
+          ) : null}
+        </div>
       </SiteChrome>
 
       {identity.modal}
