@@ -1131,7 +1131,7 @@ as $$
   from public.companies c, t
   where t.k <> ''
     and char_length(t.k) <= 80
-    and c.status = 'active'
+    and c.status <> 'hidden'
     and c.merged_into is null
     and (
       lower(c.display_name) like '%' || t.p || '%'
