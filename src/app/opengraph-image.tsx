@@ -78,10 +78,10 @@ export default async function OgImage() {
         flexDirection: "column",
         justifyContent: "space-between",
         padding: "60px 72px 56px",
-        background: "#00508E",
+        background: "#13458B",
         color: "#FFFFFF",
         fontFamily: "Noto Sans TC",
-        borderBottom: "14px solid #F2C744",
+        borderBottom: "14px solid #3B82F6",
         position: "relative",
       }}
     >
@@ -108,8 +108,8 @@ export default async function OgImage() {
             fontWeight: 800,
             fontSize: 28,
             letterSpacing: 5,
-            background: "#FFE38A",
-            color: "#0F2440",
+            background: "#CFD9E8",
+            color: "#13458B",
             padding: "6px 16px",
           }}
         >
@@ -129,7 +129,7 @@ export default async function OgImage() {
         <div style={{ display: "flex" }}>{LINE_1}</div>
         <div style={{ display: "flex" }}>
           {LINE_2A}
-          <span style={{ color: "#FFE38A" }}>{LINE_2B}</span>
+          <span style={{ color: "#CFD9E8" }}>{LINE_2B}</span>
           {LINE_2C}
         </div>
       </div>
