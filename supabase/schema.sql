@@ -84,11 +84,12 @@ alter table public.posts add column if not exists company_en text
 alter table public.posts add column if not exists url text
   not null default '';
 
--- Reason length moved from 4–120 to 60–200 characters. NOT VALID so the
+-- Reason length: RPC enforces 10–50 (2026-09-15; was 60–200). The table check stays
+-- a loose 10–200 bound so rows written under the old rule remain valid. NOT VALID so the
 -- statement stays a no-op-safe rewrite on a table that already holds rows.
 alter table public.posts drop constraint if exists posts_reason_check;
 alter table public.posts add constraint posts_reason_check
-  check (char_length(reason) between 60 and 200) not valid;
+  check (char_length(reason) between 10 and 200) not valid;
 
 create index if not exists posts_company_key_idx on public.posts (company_key);
 create index if not exists posts_user_id_idx on public.posts (user_id);
@@ -549,8 +550,8 @@ begin
   if char_length(v_url) > 300 then
     raise exception '官方網址過長。';
   end if;
-  if char_length(v_reason) < 60 or char_length(v_reason) > 200 then
-    raise exception '理由請寫 60 到 200 字';
+  if char_length(v_reason) < 10 or char_length(v_reason) > 50 then
+    raise exception '理由請寫 10 到 50 字';
   end if;
   if v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
     raise exception '請確認 Email 格式。';

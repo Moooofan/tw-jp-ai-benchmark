@@ -83,7 +83,7 @@ export default function NominateClient({
       </li>
       <li>
         <Icon icon={MessageSquareText} />
-        60–200 字的提名理由
+        10–50 字的提名理由
       </li>
     </ul>
   );

@@ -13,8 +13,8 @@ import Icon from "./Icon";
 import type { useParticipantEmail } from "./ParticipantEmail";
 
 const SUGGEST_MS = 250;
-const REASON_MIN = 60;
-const REASON_MAX = 200;
+const REASON_MIN = 10;
+const REASON_MAX = 50;
 
 /**
  * The five numbered fields, unchanged (spec v5 adds the checklist icons). Submits through the existing
@@ -72,7 +72,7 @@ export default function NominateForm({
       return;
     }
     if (w.length < REASON_MIN || w.length > REASON_MAX) {
-      setErr("理由請寫 60 到 200 字");
+      setErr("理由請寫 10 到 50 字");
       return;
     }
     if (m && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)) {
@@ -179,7 +179,7 @@ export default function NominateForm({
           id="why"
           value={reason}
           maxLength={REASON_MAX}
-          placeholder="它在日本市場做了什麼、為什麼值得被觀察（60–200 字）"
+          placeholder="它在日本市場做了什麼、為什麼值得被觀察（10–50 字）"
           onChange={(e) => {
             setReason(e.target.value);
             setErr("");

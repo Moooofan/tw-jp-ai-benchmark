@@ -44,7 +44,7 @@ import SiteChrome, { DISCLAIMER, headerCta } from "./SiteChrome";
 
 const REFRESH_MS = 20_000;
 const RECENT_ON_HOME = 6;
-const DEFAULT_LINK = "https://ximu.ai/";
+const DEFAULT_LINK = "https://ximu-geo.com/zh-TW";
 
 /* Verbatim copy from prototype/campaign-v5.html, paired with its icons. */
 const BACKGROUND: { icon: LucideIcon; h: string; p: string }[] = [
@@ -594,7 +594,7 @@ function NominatePanel({ stats }: { stats: Stats }) {
                   </li>
                   <li>
                     <Icon icon={MessageSquareText} />
-                    60–200 字的提名理由
+                    10–50 字的提名理由
                   </li>
                 </ul>
               </>

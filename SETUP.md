@@ -252,7 +252,7 @@ name and URL, and it clears any existing shortlist and votes). Then fill in
 | `partners_text` | the Ecosystem and Media Partners strip (text only, no logos) |
 | `contact_email` | the colophon contact line (hidden when empty) |
 
-Both URL fields fall back to `https://ximu.ai/` when left empty — confirm the
+Both URL fields fall back to `https://ximu-geo.com/zh-TW` when left empty — confirm the
 real destinations before launch.
 
 ## 9. Adjusting numbers
