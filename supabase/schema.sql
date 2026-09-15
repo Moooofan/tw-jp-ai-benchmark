@@ -2374,3 +2374,85 @@ grant execute on function public.admin_testers_set(text, boolean) to authenticat
 grant execute on function public.admin_vote_stats() to authenticated;
 
 -- END v7
+
+
+-- v7b — Phase 2 UI stage (SPEC-v7b-ui.md §6): merge fix. BEGIN v7b
+-- admin_merge_company now also moves ballot picks. When one ballot picked
+-- both companies, the earlier pick (created_at, then id) is kept, the later
+-- pick's reactions move onto it where that email has no stance yet, and the
+-- later pick is deleted. Apply statement by statement:  node scripts/apply-sql.mjs v7b
+-- ===========================================================================
+
+create or replace function public.admin_merge_company(p_from text, p_into text)
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_from public.companies;
+  v_into public.companies;
+  v_pair record;
+  v_keep bigint;
+  v_drop bigint;
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  select * into v_from from public.companies c where c.domain = p_from;
+  select * into v_into from public.companies c where c.domain = p_into;
+  if v_from.domain is null or v_into.domain is null then
+    raise exception '找不到公司。';
+  end if;
+  if v_from.domain = v_into.domain then
+    raise exception '不能合併到自己。';
+  end if;
+
+  update public.nominations set domain = v_into.domain where domain = v_from.domain;
+
+  -- Ballots that picked both companies: keep the earlier pick.
+  for v_pair in
+    select pf.id as from_id, pi.id as into_id,
+           (pf.created_at, pf.id) < (pi.created_at, pi.id) as from_first
+    from public.ballot_picks pf
+    join public.ballot_picks pi on pi.ballot_id = pf.ballot_id and pi.domain = v_into.domain
+    where pf.domain = v_from.domain
+  loop
+    if v_pair.from_first then
+      v_keep := v_pair.from_id;
+      v_drop := v_pair.into_id;
+    else
+      v_keep := v_pair.into_id;
+      v_drop := v_pair.from_id;
+    end if;
+    insert into public.reason_reactions (pick_id, email_key, value, created_at)
+    select v_keep, rr.email_key, rr.value, rr.created_at
+    from public.reason_reactions rr
+    where rr.pick_id = v_drop
+    on conflict (pick_id, email_key) do nothing;
+    delete from public.ballot_picks bp where bp.id = v_drop;
+  end loop;
+  update public.ballot_picks set domain = v_into.domain where domain = v_from.domain;
+
+  update public.companies set merged_into = v_into.domain where merged_into = v_from.domain;
+  update public.companies c
+  set aliases = coalesce((
+        select array_agg(distinct a order by a)
+        from unnest(v_into.aliases || v_from.display_name || v_from.aliases) a
+        where btrim(a) <> '' and a <> v_into.display_name
+      ), '{}'::text[]),
+      merged_into = null
+  where c.domain = v_into.domain;
+  update public.companies set status = 'hidden', merged_into = v_into.domain
+  where domain = v_from.domain;
+  delete from public.board_snapshots where domain = v_from.domain;
+  delete from public.leaderboard_snapshots where domain = v_from.domain;
+end;
+$$;
+
+revoke all on function public.admin_merge_company(text, text) from public, anon, authenticated;
+
+grant execute on function public.admin_merge_company(text, text) to authenticated;
+
+-- END v7b

@@ -18,6 +18,7 @@ import type {
   Settings,
 } from "@/lib/types";
 import AdminCompanies from "./AdminCompanies";
+import AdminVote from "./AdminVote";
 import { useEmailGate } from "./EmailGate";
 
 type PostSort = "score" | "new" | "flagged";
@@ -155,6 +156,8 @@ function AdminBoard() {
       />
 
       <AdminCompanies onError={setNote} />
+
+      <AdminVote onError={setNote} />
 
       <PostsSection posts={posts} reload={load} onError={setNote} />
 

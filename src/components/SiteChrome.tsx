@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { monthDay } from "@/lib/format";
-import { isPhaseOne } from "@/lib/phase";
+import { isPhaseOne, isVotePhase } from "@/lib/phase";
 import type { Phase, Stats } from "@/lib/types";
 
 export const DISCLAIMER =
@@ -22,6 +22,7 @@ export function headerCta(phase: Phase): { label: string; href: string } {
   if (phase === "nominate") return { label: "立即提名", href: "/nominate" };
   if (phase === "pre") return { label: "提名說明", href: "/#how" };
   if (phase === "vote") return { label: "立即投票", href: "/vote" };
+  if (phase === "closed") return { label: "直播預告", href: "/#live" };
   return { label: "查看活動方式", href: "/#how" };
 }
 
@@ -69,6 +70,7 @@ export default function SiteChrome({
 }) {
   const cta = headerCta(stats.phase);
   const phaseOne = isPhaseOne(stats.phase);
+  const votePhase = isVotePhase(stats.phase);
   return (
     <>
       <header className="top">
@@ -103,6 +105,12 @@ export default function SiteChrome({
             {phaseOne ? (
               <>
                 <Link href="/#how">提名說明</Link>
+              </>
+            ) : votePhase ? (
+              <>
+                <Link href="/#leaderboard">排行榜</Link>
+                <Link href="/#reasons">熱門理由</Link>
+                <Link href="/#rules">投票規則</Link>
               </>
             ) : (
               <>

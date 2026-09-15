@@ -29,8 +29,12 @@ const BACKGROUND: { icon: LucideIcon; h: string; p: string }[] = [
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
-/** 前情提要 (BACKGROUND). Copy unchanged since spec v5; shared by every phase. */
-export default function BackgroundBand({ ctaHref }: { ctaHref: string }) {
+/**
+ * 前情提要 (BACKGROUND). Copy unchanged since spec v5; shared by every phase.
+ * Without `ctaHref` (vote / closed, when nominations are over) the 我要提名
+ * button is left out; the copy stays verbatim.
+ */
+export default function BackgroundBand({ ctaHref }: { ctaHref?: string }) {
   return (
     <Band id="background" chip="Background" title="前情提要：為什麼做這份調查">
       <p className="lead">
@@ -53,10 +57,12 @@ export default function BackgroundBand({ ctaHref }: { ctaHref: string }) {
         <p>
           所以我們發起這份調查，邀請熟悉台灣新創的你，一起提名最值得作為日本市場發展案例的公司。
         </p>
-        <a className="btn btn--brand" href={ctaHref}>
-          我要提名
-          <Icon icon={ArrowRight} />
-        </a>
+        {ctaHref ? (
+          <a className="btn btn--brand" href={ctaHref}>
+            我要提名
+            <Icon icon={ArrowRight} />
+          </a>
+        ) : null}
       </div>
     </Band>
   );

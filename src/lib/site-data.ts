@@ -1,7 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import { withPreview } from "@/lib/phase";
 import {
   EMPTY_BOARD,
+  EMPTY_VOTE_BOARD,
   type Board,
+  type CompanyDetail,
+  type VoteBoard,
   type PublicFinalist,
   type PublicPost,
   type Stats,
@@ -62,7 +66,10 @@ export async function loadSiteData(): Promise<{
     supabase.rpc("board"),
   ]);
 
-  const stats = { ...FALLBACK_STATS, ...((statsRes.data as Stats | null) ?? {}) };
+  const stats = withPreview({
+    ...FALLBACK_STATS,
+    ...((statsRes.data as Stats | null) ?? {}),
+  });
   const posts = (postsRes.data as PublicPost[] | null) ?? [];
   const rawFinalists =
     (finalistsRes.data as (PublicFinalist & { votes: number | null })[] | null) ??
@@ -80,5 +87,32 @@ export async function loadSiteData(): Promise<{
 /** Just the phase and dates (for /nominate). */
 export async function loadStats(): Promise<Stats> {
   const { data } = await publicClient().rpc("stats");
-  return { ...FALLBACK_STATS, ...((data as Stats | null) ?? {}) };
+  return withPreview({ ...FALLBACK_STATS, ...((data as Stats | null) ?? {}) });
+}
+
+/* ------------------------------------------------------ v7b: vote phase */
+
+/** `vote_board()`: totals, leaderboard, hot / latest reasons. */
+export async function loadVoteBoard(): Promise<VoteBoard> {
+  const { data } = await publicClient().rpc("vote_board");
+  return { ...EMPTY_VOTE_BOARD, ...((data as VoteBoard | null) ?? {}) };
+}
+
+/** `company_detail(domain)`, or null when it is not a visible candidate. */
+export async function loadCompanyDetail(
+  domain: string,
+): Promise<CompanyDetail | null> {
+  const { data, error } = await publicClient().rpc("company_detail", {
+    p_domain: domain,
+  });
+  if (error) throw new Error(error.message);
+  return (data as CompanyDetail | null) ?? null;
+}
+
+/** `reason_corpus(domain)`: visible reason texts (all when domain is null). */
+export async function loadReasonCorpus(domain: string | null): Promise<string[]> {
+  const { data } = await publicClient().rpc("reason_corpus", {
+    p_domain: domain,
+  });
+  return (data as string[] | null) ?? [];
 }

@@ -21,14 +21,50 @@ const STORAGE_KEY = "benchmark:email";
  * small modal if it is not yet), after making sure the anonymous session
  * exists.
  */
-export function useParticipantEmail() {
+/** Modal copy; the defaults are the original participant prompt. */
+export type EmailPromptCopy = { title?: string; body?: string };
+
+/** Remembered participant email (localStorage), or "". */
+export function readSavedEmail(): string {
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeSavedEmail(value: string): void {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, value);
+  } catch {
+    /* ignore */
+  }
+}
+
+let anonSignIn: Promise<void> | null = null;
+
+/** One anonymous Supabase session per browser (module-level variant). */
+export async function ensureAnonSession(): Promise<void> {
   const supabase = getBrowserClient();
+  const { data } = await supabase.auth.getSession();
+  if (data.session) return;
+  if (!anonSignIn) {
+    anonSignIn = supabase.auth.signInAnonymously().then(({ error }) => {
+      if (error) {
+        anonSignIn = null;
+        throw error;
+      }
+    });
+  }
+  await anonSignIn;
+}
+
+export function useParticipantEmail(copy: EmailPromptCopy = {}) {
   const [email, setEmailState] = useState("");
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const pending = useRef<((email: string) => void) | null>(null);
-  const signingIn = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     try {
@@ -49,19 +85,7 @@ export function useParticipantEmail() {
   }, []);
 
   /** One anonymous sign-in per browser; safe to call repeatedly. */
-  const ensureSession = useCallback(async () => {
-    const { data } = await supabase.auth.getSession();
-    if (data.session) return;
-    if (!signingIn.current) {
-      signingIn.current = supabase.auth.signInAnonymously().then(({ error }) => {
-        if (error) {
-          signingIn.current = null;
-          throw error;
-        }
-      });
-    }
-    await signingIn.current;
-  }, [supabase]);
+  const ensureSession = useCallback(() => ensureAnonSession(), []);
 
   const require = useCallback(
     (fn: (email: string) => void, emailHint?: string) => {
@@ -119,6 +143,7 @@ export function useParticipantEmail() {
       err={err}
       onClose={close}
       onSubmit={submit}
+      copy={copy}
     />
   );
 
@@ -131,7 +156,9 @@ function EmailPromptModal({
   err,
   onClose,
   onSubmit,
+  copy,
 }: {
+  copy: EmailPromptCopy;
   open: boolean;
   busy: boolean;
   err: string;
@@ -146,8 +173,8 @@ function EmailPromptModal({
 
   return (
     <Modal open={open} onClose={onClose}>
-      <h3>留下你的 Email</h3>
-      <p>請留下 Email，同一信箱只計一次。不公開、不寄信。</p>
+      <h3>{copy.title ?? "留下你的 Email"}</h3>
+      <p>{copy.body ?? "請留下 Email，同一信箱只計一次。不公開、不寄信。"}</p>
       <input
         type="email"
         autoComplete="email"
