@@ -41,7 +41,9 @@ const sb = createClient(url, anon, {
 const results = [];
 function record(name, pass, detail) {
   results.push({ name, pass, detail });
-  console.log(`${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
+  console.log(
+    `${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`,
+  );
 }
 
 async function allowed(name, promise) {
@@ -64,7 +66,10 @@ async function denied(name, promise) {
 
 console.log(`project: ${url}  (anon key, no session)\n`);
 
-await allowed("anon can read posts_public", sb.from("posts_public").select("*").limit(5));
+await allowed(
+  "anon can read posts_public",
+  sb.from("posts_public").select("*").limit(5),
+);
 
 // Phase 1 governance: the public view must carry the v2 columns and must NOT
 // carry any endorsement score.
@@ -94,18 +99,46 @@ await allowed("anon can read posts_public", sb.from("posts_public").select("*").
 }
 await allowed("anon can call stats()", sb.rpc("stats"));
 await allowed("anon can call effective_phase()", sb.rpc("effective_phase"));
-await allowed("anon can call posts_public_count()", sb.rpc("posts_public_count"));
-await allowed("anon can call company_suggest()", sb.rpc("company_suggest", { q: "a" }));
-await allowed("anon can read finalists_public", sb.from("finalists_public").select("*").limit(5));
-await allowed("anon can read settings", sb.from("settings").select("phase").limit(1));
+await allowed(
+  "anon can call posts_public_count()",
+  sb.rpc("posts_public_count"),
+);
+await allowed(
+  "anon can call company_suggest()",
+  sb.rpc("company_suggest", { q: "a" }),
+);
+await allowed(
+  "anon can read finalists_public",
+  sb.from("finalists_public").select("*").limit(5),
+);
+await allowed(
+  "anon can read settings",
+  sb.from("settings").select("phase").limit(1),
+);
 
 await denied("anon cannot read posts", sb.from("posts").select("*").limit(1));
-await denied("anon cannot read finalists", sb.from("finalists").select("*").limit(1));
+await denied(
+  "anon cannot read finalists",
+  sb.from("finalists").select("*").limit(1),
+);
 await denied("anon cannot read votes", sb.from("votes").select("*").limit(1));
 await denied("anon cannot read admins", sb.from("admins").select("*").limit(1));
-await denied("anon cannot read reports", sb.from("reports").select("*").limit(1));
-await denied("anon cannot read final_votes", sb.from("final_votes").select("*").limit(1));
-await denied("anon cannot read participants", sb.from("participants").select("*").limit(1));
+await denied(
+  "anon cannot read reports",
+  sb.from("reports").select("*").limit(1),
+);
+await denied(
+  "anon cannot read final_votes",
+  sb.from("final_votes").select("*").limit(1),
+);
+await denied(
+  "anon cannot read participants",
+  sb.from("participants").select("*").limit(1),
+);
+
+async function mustErrorLater(name, thunk) {
+  return mustError(name, thunk());
+}
 
 async function mustError(name, promise) {
   const { error } = await promise;
@@ -117,16 +150,98 @@ await mustError(
   sb.from("settings").update({ phase: "results" }).eq("id", 1).select(),
 );
 
-await mustError(
-  "nominate() rejects without a session",
-  sb.rpc("nominate", {
+// v6: the email-based nomination is retired and must say so.
+{
+  const { error } = await sb.rpc("nominate", {
     p_company: "rls-probe",
     p_company_en: "RLS Probe",
     p_url: "https://example.com/",
-    p_reason: "should never land".padEnd(70, "."),
+    p_reason: "should never land".padEnd(20, "."),
     p_email: "rls-probe@example.com",
+  });
+  record(
+    "old nominate() rejects with 提名方式已更新",
+    !!error && error.message.includes("提名方式已更新，請重新整理頁面。"),
+    error ? error.message : "unexpectedly succeeded",
+  );
+}
+
+// ---------------------------------------------------------------- v6 Phase 1
+await allowed(
+  "anon can call resolve_company()",
+  sb.rpc("resolve_company", { q: "a" }),
+);
+await allowed(
+  "anon can call resolve_domain()",
+  sb.rpc("resolve_domain", {
+    url: "https://www.rls-probe.example/path",
+    name: "rls-probe",
   }),
 );
+{
+  const { data } = await sb.rpc("resolve_domain", {
+    url: "HTTPS://www.RLS-probe.example:8443/x?y=1",
+  });
+  record(
+    "resolve_domain() normalises to the bare domain",
+    data?.domain === "rls-probe.example",
+    JSON.stringify(data),
+  );
+}
+await allowed("anon can call board()", sb.rpc("board"));
+await denied(
+  "anon cannot read companies",
+  sb.from("companies").select("*").limit(1),
+);
+await denied(
+  "anon cannot read nominations",
+  sb.from("nominations").select("*").limit(1),
+);
+await denied(
+  "anon cannot read board_snapshots",
+  sb.from("board_snapshots").select("*").limit(1),
+);
+await mustErrorLater("anon cannot insert companies", () =>
+  sb
+    .from("companies")
+    .insert({ domain: "rls-probe.example", display_name: "rls-probe" }),
+);
+await mustErrorLater("anon cannot call take_board_snapshot()", () =>
+  sb.rpc("take_board_snapshot"),
+);
+await mustErrorLater("admin_company_stats() rejects anon", () =>
+  sb.rpc("admin_company_stats"),
+);
+await mustErrorLater("admin_merge_company() rejects anon", () =>
+  sb.rpc("admin_merge_company", { p_from: "a.example", p_into: "b.example" }),
+);
+{
+  // board() must never publish raw counts: total_companies is the only
+  // integer; hot[].share is a 0–1 fraction (1 for the top company is fine).
+  const { data, error } = await sb.rpc("board");
+  const offenders = [];
+  const walk = (v, path) => {
+    if (typeof v === "number") {
+      const key = path[path.length - 1];
+      if (key === "total_companies" && path.length === 1) return;
+      if (key === "share" && v >= 0 && v <= 1) return;
+      offenders.push(`${path.join(".")}=${v}`);
+    } else if (Array.isArray(v))
+      v.forEach((x, i) => walk(x, [...path, String(i)]));
+    else if (v && typeof v === "object")
+      for (const [k, x] of Object.entries(v)) walk(x, [...path, k]);
+  };
+  walk(data, []);
+  const keys = data ? Object.keys(data).sort().join(",") : "";
+  record(
+    "board() has no counts other than total_companies",
+    !error && Number.isInteger(data?.total_companies) && offenders.length === 0,
+    error
+      ? error.message
+      : `keys: ${keys}${offenders.length ? `; offenders: ${offenders.join(", ")}` : ""}`,
+  );
+}
+
 await mustError(
   "cast_vote() rejects without a session",
   sb.rpc("cast_vote", {
@@ -150,15 +265,34 @@ await mustError(
   }),
 );
 await mustError("admin_people() rejects anon", sb.rpc("admin_people"));
-await mustError("admin_build_finalists() rejects anon", sb.rpc("admin_build_finalists"));
+await mustError(
+  "admin_build_finalists() rejects anon",
+  sb.rpc("admin_build_finalists"),
+);
 
 // Nothing must have been written by the probes above.
 const { count } = await sb
   .from("posts_public")
   .select("id", { count: "exact", head: true })
   .eq("company", "rls-probe");
-record("nothing was written by the probes", (count ?? 0) === 0, `${count ?? 0} probe row(s)`);
+record(
+  "nothing was written by the probes",
+  (count ?? 0) === 0,
+  `${count ?? 0} probe row(s)`,
+);
+
+// v6 probes must not have created a company either (resolve_domain is read-only).
+{
+  const { data } = await sb.rpc("resolve_domain", { url: "rls-probe.example" });
+  record(
+    "no probe company exists",
+    data?.exists === false,
+    JSON.stringify(data),
+  );
+}
 
 const failed = results.filter((r) => !r.pass);
-console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
+console.log(
+  `\n${results.length - failed.length}/${results.length} checks passed`,
+);
 process.exit(failed.length === 0 ? 0 : 1);

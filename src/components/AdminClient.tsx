@@ -17,6 +17,7 @@ import type {
   PhaseMode,
   Settings,
 } from "@/lib/types";
+import AdminCompanies from "./AdminCompanies";
 import { useEmailGate } from "./EmailGate";
 
 type PostSort = "score" | "new" | "flagged";
@@ -152,6 +153,8 @@ function AdminBoard() {
         }}
         onError={setNote}
       />
+
+      <AdminCompanies onError={setNote} />
 
       <PostsSection posts={posts} reload={load} onError={setNote} />
 

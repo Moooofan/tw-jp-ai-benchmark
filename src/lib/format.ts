@@ -103,3 +103,41 @@ export function stampToday(): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
 }
+
+/** `14:05` in Taipei time, or an empty string. */
+export function hhmm(iso: string | null): string {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "";
+  const d = new Date(t + 8 * 3_600_000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+
+/** Minute-granular relative time: 剛剛 / 12 分鐘前 / 3 小時前 / 2 天前. */
+export function minutesAgo(iso: string, now: number = Date.now()): string {
+  const mins = Math.floor((now - new Date(iso).getTime()) / 60_000);
+  if (!Number.isFinite(mins) || mins < 1) return "剛剛";
+  if (mins < 60) return `${mins} 分鐘前`;
+  if (mins < 24 * 60) return `${Math.floor(mins / 60)} 小時前`;
+  return `${Math.floor(mins / 1440)} 天前`;
+}
+
+/**
+ * Official website -> canonical domain, mirroring `public.normalize_domain`
+ * in the database (strip scheme, userinfo, path, port, `www.`; lower-case).
+ */
+export function normalizeDomain(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, "")
+    .replace(/[/?#\\].*$/, "")
+    .replace(/^[^@]*@/, "")
+    .replace(/(:[0-9]*)?\.?$/, "")
+    .replace(/^www\./, "");
+}
+
+export function faviconUrl(domain: string): string {
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
+}

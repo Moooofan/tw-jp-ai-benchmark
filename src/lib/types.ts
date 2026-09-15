@@ -112,3 +112,45 @@ export type MyState = {
 };
 
 export const EMPTY_STATE: MyState = { votes: {}, picks: [], reports: [] };
+
+/* ------------------------------------------------ v6: Phase 1 nomination */
+
+export type Movement = "up" | "down" | "same" | "new";
+
+/** What `board()` returns. No raw counts: `share` is 0–1 of the top company. */
+export type Board = {
+  total_companies: number;
+  recent: { domain: string; display_name: string; first_nominated_at: string }[];
+  hot: { domain: string; display_name: string; share: number; movement: Movement }[];
+  updated_at: string | null;
+  snapshot_at: string | null;
+};
+
+export const EMPTY_BOARD: Board = {
+  total_companies: 0,
+  recent: [],
+  hot: [],
+  updated_at: null,
+  snapshot_at: null,
+};
+
+/** A resolver hit or proposal (`resolve_company` / `resolve_domain`). */
+export type CompanyMatch = {
+  domain: string;
+  display_name: string;
+  aliases: string[];
+  exists?: boolean;
+};
+
+export type AdminCompany = {
+  domain: string;
+  display_name: string;
+  aliases: string[];
+  status: "active" | "pending" | "hidden";
+  is_seed: boolean;
+  created_at: string | null;
+  merged_into: string | null;
+  nominations: number;
+  first_nominated_at: string | null;
+  last_nominated_at: string | null;
+};

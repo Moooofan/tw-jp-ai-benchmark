@@ -986,3 +986,528 @@ grant execute on function public.admin_people() to authenticated;
 grant execute on function public.admin_build_finalists() to authenticated;
 grant execute on function public.is_admin() to authenticated;
 grant execute on function public.effective_phase() to anon, authenticated;
+
+-- ===========================================================================
+-- v6 — Phase 1 per campaign memo v4.0 (SPEC-v6-phase1.md). BEGIN v6
+-- Frictionless nomination: a company name resolved to an official domain,
+-- no email / reason / cap. The old posts / votes / participants tables and
+-- their RPCs stay in place (unused by the Phase 1 UI); only the old
+-- nominate() now rejects. Snapshot mechanism: pg_cron is NOT enabled on this
+-- project, so board() takes the hourly rank snapshot lazily.
+-- Apply statement by statement:  node scripts/apply-sql.mjs v6
+-- ===========================================================================
+
+create extension if not exists pg_trgm with schema extensions;
+
+create table if not exists public.companies (
+  domain text primary key,
+  display_name text not null,
+  aliases text[] not null default '{}',
+  status text not null default 'active'
+    check (status in ('active', 'pending', 'hidden')),
+  is_seed boolean not null default false,
+  created_at timestamptz default now(),
+  merged_into text references public.companies (domain)
+);
+
+create index if not exists companies_display_name_trgm_idx
+  on public.companies using gin (lower(display_name) extensions.gin_trgm_ops);
+
+create index if not exists companies_aliases_idx
+  on public.companies using gin (aliases);
+
+create table if not exists public.nominations (
+  id bigserial primary key,
+  domain text not null references public.companies (domain),
+  session_id uuid,
+  typed_name text,
+  created_at timestamptz default now()
+);
+
+create index if not exists nominations_domain_idx
+  on public.nominations (domain, created_at);
+
+create index if not exists nominations_session_idx
+  on public.nominations (session_id, created_at);
+
+create index if not exists nominations_created_at_idx
+  on public.nominations (created_at desc);
+
+-- One row per company per hourly snapshot. `n` (raw count at snapshot time)
+-- is internal: it only feeds the 0–1 share bar and never leaves board().
+create table if not exists public.board_snapshots (
+  taken_at timestamptz not null,
+  domain text not null,
+  rank int not null,
+  primary key (taken_at, domain)
+);
+
+alter table public.board_snapshots add column if not exists n int not null default 0;
+
+alter table public.companies enable row level security;
+
+alter table public.nominations enable row level security;
+
+alter table public.board_snapshots enable row level security;
+
+drop policy if exists companies_admin_all on public.companies;
+
+create policy companies_admin_all on public.companies
+for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists nominations_admin_all on public.nominations;
+
+create policy nominations_admin_all on public.nominations
+for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists board_snapshots_admin_read on public.board_snapshots;
+
+create policy board_snapshots_admin_read on public.board_snapshots
+for select to authenticated using (public.is_admin());
+
+revoke all on public.companies from anon, authenticated;
+
+revoke all on public.nominations from anon, authenticated;
+
+revoke all on public.board_snapshots from anon, authenticated;
+
+revoke all on sequence public.nominations_id_seq from anon, authenticated;
+
+grant select, insert, update, delete on public.companies to authenticated;
+
+grant select, update, delete on public.nominations to authenticated;
+
+grant select on public.board_snapshots to authenticated;
+
+-- Official website -> canonical domain: strip scheme, userinfo, path/query,
+-- port, `www.` and a trailing dot; lower-case. NULL when nothing is left.
+create or replace function public.normalize_domain(p_url text)
+returns text
+language sql
+immutable
+set search_path = public
+as $$
+  select nullif(
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(
+          regexp_replace(
+            regexp_replace(
+              lower(btrim(coalesce(p_url, ''))),
+              '^[a-z][a-z0-9+.-]*://', ''),
+            '[/?#\\].*$', ''),
+          '^[^@]*@', ''),
+        '(:[0-9]*)?\.?$', ''),
+      '^www\.', ''),
+    '');
+$$;
+
+create or replace function public.valid_domain(p_domain text)
+returns boolean
+language sql
+immutable
+set search_path = public
+as $$
+  select coalesce(
+    char_length(p_domain) <= 253
+    and p_domain ~ '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$',
+    false);
+$$;
+
+-- Name search for the /nominate resolver. Active companies only (seed
+-- companies included); merged-away entities never match.
+create or replace function public.resolve_company(q text)
+returns table (domain text, display_name text, aliases text[])
+language sql
+stable
+security definer
+set search_path = public, extensions
+as $$
+  with t as (
+    select lower(btrim(coalesce(q, ''))) as k,
+           replace(replace(replace(lower(btrim(coalesce(q, ''))), '\', '\\'), '%', '\%'), '_', '\_') as p
+  )
+  select c.domain, c.display_name, c.aliases
+  from public.companies c, t
+  where t.k <> ''
+    and char_length(t.k) <= 80
+    and c.status = 'active'
+    and c.merged_into is null
+    and (
+      lower(c.display_name) like '%' || t.p || '%'
+      or exists (select 1 from unnest(c.aliases) a where lower(a) like '%' || t.p || '%')
+      or c.domain like t.p || '%'
+      or (char_length(t.k) >= 3 and similarity(lower(c.display_name), t.k) > 0.3)
+    )
+  order by
+    (lower(c.display_name) = t.k
+      or exists (select 1 from unnest(c.aliases) a where lower(a) = t.k)) desc,
+    (lower(c.display_name) like t.p || '%') desc,
+    similarity(lower(c.display_name), t.k) desc,
+    c.display_name
+  limit 6;
+$$;
+
+-- Official website -> existing company (following merges) or a proposal
+-- {domain, display_name = the typed name}. Read-only.
+create or replace function public.resolve_domain(url text, name text default '')
+returns json
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_domain text := public.normalize_domain(url);
+  v_c public.companies;
+  v_hops int := 0;
+begin
+  if not public.valid_domain(v_domain) then
+    raise exception '請輸入正確的官方網站，例如 https://example.com';
+  end if;
+
+  select * into v_c from public.companies c where c.domain = v_domain;
+  while v_c.merged_into is not null and v_hops < 5 loop
+    select * into v_c from public.companies c where c.domain = v_c.merged_into;
+    v_hops := v_hops + 1;
+  end loop;
+
+  if v_c.domain is not null then
+    return json_build_object(
+      'domain', v_c.domain,
+      'display_name', v_c.display_name,
+      'aliases', to_json(v_c.aliases),
+      'exists', true
+    );
+  end if;
+
+  return json_build_object(
+    'domain', v_domain,
+    'display_name', left(regexp_replace(btrim(coalesce(name, '')), '\s+', ' ', 'g'), 60),
+    'aliases', '[]'::json,
+    'exists', false
+  );
+end;
+$$;
+
+-- The one Phase 1 write. Phase must be 'nominate'. New domain -> company
+-- with status 'pending' and the typed name. Nominating the same company again
+-- only means "it has been nominated". Soft rate limit (memo: 不做防弊): past
+-- 20/session/hour or 200/domain/hour the call still succeeds but writes nothing.
+create or replace function public.nominate_company(p_domain text, p_display_name text)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_phase text := public.effective_phase();
+  v_domain text := public.normalize_domain(p_domain);
+  v_name text := left(regexp_replace(btrim(coalesce(p_display_name, '')), '\s+', ' ', 'g'), 60);
+  v_c public.companies;
+  v_hops int := 0;
+  v_limited boolean := false;
+begin
+  if v_phase = 'pre' then
+    raise exception '提名尚未開放。';
+  end if;
+  if v_phase is distinct from 'nominate' then
+    raise exception '提名期間已結束。';
+  end if;
+  if not public.valid_domain(v_domain) then
+    raise exception '請輸入正確的官方網站，例如 https://example.com';
+  end if;
+
+  select * into v_c from public.companies c where c.domain = v_domain;
+  while v_c.merged_into is not null and v_hops < 5 loop
+    select * into v_c from public.companies c where c.domain = v_c.merged_into;
+    v_hops := v_hops + 1;
+  end loop;
+
+  if v_c.domain is null and v_name = '' then
+    raise exception '請輸入公司名稱。';
+  end if;
+
+  if v_uid is not null and (
+    select count(*) from public.nominations n
+    where n.session_id = v_uid and n.created_at > now() - interval '1 hour'
+  ) >= 20 then
+    v_limited := true;
+  end if;
+  if v_c.domain is not null and (
+    select count(*) from public.nominations n
+    where n.domain = v_c.domain and n.created_at > now() - interval '1 hour'
+  ) >= 200 then
+    v_limited := true;
+  end if;
+
+  if v_limited then
+    return json_build_object(
+      'domain', coalesce(v_c.domain, v_domain),
+      'display_name', coalesce(v_c.display_name, v_name),
+      'aliases', to_json(coalesce(v_c.aliases, '{}'::text[])),
+      'ok', true
+    );
+  end if;
+
+  if v_c.domain is null then
+    insert into public.companies (domain, display_name, status)
+    values (v_domain, v_name, 'pending')
+    on conflict (domain) do nothing;
+    select * into v_c from public.companies c where c.domain = v_domain;
+  end if;
+
+  insert into public.nominations (domain, session_id, typed_name)
+  values (v_c.domain, v_uid, nullif(v_name, ''));
+
+  return json_build_object(
+    'domain', v_c.domain,
+    'display_name', v_c.display_name,
+    'aliases', to_json(v_c.aliases),
+    'ok', true
+  );
+end;
+$$;
+
+-- Hourly rank snapshot (lazy: called by board()). The advisory lock plus the
+-- re-check make concurrent board() calls take at most one snapshot per hour.
+create or replace function public.take_board_snapshot()
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtext('public.take_board_snapshot'));
+  if coalesce((select max(taken_at) from public.board_snapshots), '-infinity'::timestamptz)
+     >= now() - interval '60 minutes' then
+    return;
+  end if;
+
+  insert into public.board_snapshots (taken_at, domain, rank, n)
+  select clock_timestamp(), x.domain, x.rk, x.n
+  from (
+    select c.domain,
+           count(*)::int as n,
+           row_number() over (order by count(*) desc, min(nm.created_at), c.domain)::int as rk
+    from public.nominations nm
+    join public.companies c on c.domain = nm.domain
+    where c.status <> 'hidden' and c.merged_into is null
+    group by c.domain
+  ) x
+  where x.rk <= 100;
+
+  delete from public.board_snapshots where taken_at < now() - interval '14 days';
+end;
+$$;
+
+-- The public nomination board. Never returns raw nomination counts:
+-- total_companies is the only integer; hot[].share is 0–1 of the top count.
+create or replace function public.board()
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_latest timestamptz;
+  v_prev timestamptz;
+  v_top int;
+begin
+  if coalesce((select max(taken_at) from public.board_snapshots), '-infinity'::timestamptz)
+     < now() - interval '60 minutes' then
+    perform public.take_board_snapshot();
+  end if;
+
+  select max(taken_at) into v_latest from public.board_snapshots;
+  select max(taken_at) into v_prev from public.board_snapshots where taken_at < v_latest;
+  select max(s.n) into v_top
+  from public.board_snapshots s
+  join public.companies c on c.domain = s.domain
+  where s.taken_at = v_latest and c.status <> 'hidden' and c.merged_into is null;
+
+  return json_build_object(
+    'total_companies', (
+      select count(distinct nm.domain)::int
+      from public.nominations nm
+      join public.companies c on c.domain = nm.domain
+      where c.status <> 'hidden' and c.merged_into is null
+    ),
+    'recent', coalesce((
+      select json_agg(json_build_object(
+               'domain', r.domain,
+               'display_name', r.display_name,
+               'first_nominated_at', r.first_nominated_at
+             ) order by r.first_nominated_at desc)
+      from (
+        select c.domain, c.display_name, min(nm.created_at) as first_nominated_at
+        from public.nominations nm
+        join public.companies c on c.domain = nm.domain
+        where c.status <> 'hidden' and c.merged_into is null
+        group by c.domain, c.display_name
+        order by min(nm.created_at) desc
+        limit 8
+      ) r
+    ), '[]'::json),
+    'hot', coalesce((
+      select json_agg(json_build_object(
+               'domain', h.domain,
+               'display_name', h.display_name,
+               'share', h.share,
+               'movement', h.movement
+             ) order by h.rank)
+      from (
+        select s.domain, c.display_name, s.rank,
+               greatest(0.05, round(s.n::numeric * 20 / nullif(v_top, 0)) / 20)::float8 as share,
+               case
+                 when v_prev is null or p.rank is null then 'new'
+                 when p.rank > s.rank then 'up'
+                 when p.rank < s.rank then 'down'
+                 else 'same'
+               end as movement
+        from public.board_snapshots s
+        join public.companies c on c.domain = s.domain
+        left join public.board_snapshots p on p.taken_at = v_prev and p.domain = s.domain
+        where s.taken_at = v_latest and c.status <> 'hidden' and c.merged_into is null
+        order by s.rank
+        limit 8
+      ) h
+    ), '[]'::json),
+    'updated_at', now(),
+    'snapshot_at', v_latest
+  );
+end;
+$$;
+
+-- Admin: every company with raw counts.
+create or replace function public.admin_company_stats()
+returns table (
+  domain text,
+  display_name text,
+  aliases text[],
+  status text,
+  is_seed boolean,
+  created_at timestamptz,
+  merged_into text,
+  nominations int,
+  first_nominated_at timestamptz,
+  last_nominated_at timestamptz
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  return query
+    select c.domain, c.display_name, c.aliases, c.status, c.is_seed, c.created_at,
+           c.merged_into,
+           count(nm.id)::int,
+           min(nm.created_at),
+           max(nm.created_at)
+    from public.companies c
+    left join public.nominations nm on nm.domain = c.domain
+    group by c.domain
+    order by count(nm.id) desc, c.display_name;
+end;
+$$;
+
+-- Admin: fold one company into another (nominations move, the old name
+-- becomes an alias, the old entity is hidden and points at the new one).
+create or replace function public.admin_merge_company(p_from text, p_into text)
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_from public.companies;
+  v_into public.companies;
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  select * into v_from from public.companies c where c.domain = p_from;
+  select * into v_into from public.companies c where c.domain = p_into;
+  if v_from.domain is null or v_into.domain is null then
+    raise exception '找不到公司。';
+  end if;
+  if v_from.domain = v_into.domain then
+    raise exception '不能合併到自己。';
+  end if;
+
+  update public.nominations set domain = v_into.domain where domain = v_from.domain;
+  update public.companies set merged_into = v_into.domain where merged_into = v_from.domain;
+  update public.companies c
+  set aliases = coalesce((
+        select array_agg(distinct a order by a)
+        from unnest(v_into.aliases || v_from.display_name || v_from.aliases) a
+        where btrim(a) <> '' and a <> v_into.display_name
+      ), '{}'::text[]),
+      merged_into = null
+  where c.domain = v_into.domain;
+  update public.companies set status = 'hidden', merged_into = v_into.domain
+  where domain = v_from.domain;
+  delete from public.board_snapshots where domain = v_from.domain;
+end;
+$$;
+
+-- The v5 email-based nomination is retired: stale tabs get a clear message.
+create or replace function public.nominate(
+  p_company text,
+  p_company_en text,
+  p_url text,
+  p_reason text,
+  p_email text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  raise exception '提名方式已更新，請重新整理頁面。';
+end;
+$$;
+
+grant execute on function public.nominate(text, text, text, text, text) to anon, authenticated;
+
+revoke all on function public.normalize_domain(text) from public, anon, authenticated;
+
+revoke all on function public.valid_domain(text) from public, anon, authenticated;
+
+revoke all on function public.resolve_company(text) from public, anon, authenticated;
+
+revoke all on function public.resolve_domain(text, text) from public, anon, authenticated;
+
+revoke all on function public.nominate_company(text, text) from public, anon, authenticated;
+
+revoke all on function public.take_board_snapshot() from public, anon, authenticated;
+
+revoke all on function public.board() from public, anon, authenticated;
+
+revoke all on function public.admin_company_stats() from public, anon, authenticated;
+
+revoke all on function public.admin_merge_company(text, text) from public, anon, authenticated;
+
+grant execute on function public.resolve_company(text) to anon, authenticated;
+
+grant execute on function public.resolve_domain(text, text) to anon, authenticated;
+
+grant execute on function public.nominate_company(text, text) to anon, authenticated;
+
+grant execute on function public.board() to anon, authenticated;
+
+grant execute on function public.admin_company_stats() to authenticated;
+
+grant execute on function public.admin_merge_company(text, text) to authenticated;
+
+-- END v6

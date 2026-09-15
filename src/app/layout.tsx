@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-const TITLE = "Taiwan → Japan AI Representation Benchmark 2026";
-const DESCRIPTION = "哪些台灣新創，最值得作為日本市場發展案例？";
+const TITLE = "過去五年，哪些台灣新創最值得作為日本市場發展案例？｜Taiwan → Japan 2026";
+const DESCRIPTION = "輸入公司名稱就能提名。一起整理台灣新創前進日本的案例。";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://tw-jp-ai-benchmark.vercel.app"),

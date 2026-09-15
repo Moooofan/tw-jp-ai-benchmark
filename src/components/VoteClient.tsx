@@ -9,14 +9,16 @@ import type { MyState, PublicFinalist, Stats } from "@/lib/types";
 import Icon from "./Icon";
 import { useParticipantEmail } from "./ParticipantEmail";
 import ShareRow from "./ShareRow";
-import SiteChrome, { DISCLAIMER } from "./SiteChrome";
+import SiteChrome, { DISCLAIMER, type ChromeStory } from "./SiteChrome";
 
 const PICKS = 3;
 
 export default function VoteClient({
   stats,
   finalists,
+  chrome,
 }: {
+  chrome?: ChromeStory;
   stats: Stats;
   finalists: PublicFinalist[];
 }) {
@@ -72,7 +74,7 @@ export default function VoteClient({
 
   return (
     <>
-      <SiteChrome stats={stats}>
+      <SiteChrome stats={stats} story={chrome}>
         <div className="pagehero">
           <div className="wrap">
             <span className="chip">Vote</span>

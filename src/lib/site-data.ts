@@ -1,5 +1,11 @@
-import { getServerClient } from "@/lib/supabase-server";
-import type { PublicFinalist, PublicPost, Stats } from "@/lib/types";
+import { createClient } from "@supabase/supabase-js";
+import {
+  EMPTY_BOARD,
+  type Board,
+  type PublicFinalist,
+  type PublicPost,
+  type Stats,
+} from "@/lib/types";
 
 export const FALLBACK_STATS: Stats = {
   people: 0,
@@ -11,25 +17,38 @@ export const FALLBACK_STATS: Stats = {
   nominate_close: null,
   vote_open: null,
   vote_close: null,
-  results_label: "10 月 14–15 日",
+  results_label: "",
   iqlite_url: "",
   ximu_url: "",
-  partners_text: "Partner announcement coming soon",
+  partners_text: "",
   contact_email: "",
 };
 
 const FINALIST_COLUMNS =
   "id, company, name_en, one_liner, industry, jp_info, url, report_url, blurb, top_reason, sort, votes";
 
-/** Everything the three public pages render from. One place, one shape. */
+/**
+ * Cookie-less anon client: every public read is the same for every visitor,
+ * so the pages can be served from the ISR cache (`revalidate = 300`).
+ */
+function publicClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+}
+
+/** Everything the public pages render from. One place, one shape. */
 export async function loadSiteData(): Promise<{
   stats: Stats;
   posts: PublicPost[];
   finalists: PublicFinalist[];
+  board: Board;
 }> {
-  const supabase = await getServerClient();
+  const supabase = publicClient();
 
-  const [statsRes, postsRes, finalistsRes] = await Promise.all([
+  const [statsRes, postsRes, finalistsRes, boardRes] = await Promise.all([
     supabase.rpc("stats"),
     supabase
       .from("posts_public")
@@ -40,6 +59,7 @@ export async function loadSiteData(): Promise<{
       .from("finalists_public")
       .select(FINALIST_COLUMNS)
       .order("sort", { ascending: true }),
+    supabase.rpc("board"),
   ]);
 
   const stats = { ...FALLBACK_STATS, ...((statsRes.data as Stats | null) ?? {}) };
@@ -47,11 +67,18 @@ export async function loadSiteData(): Promise<{
   const rawFinalists =
     (finalistsRes.data as (PublicFinalist & { votes: number | null })[] | null) ??
     [];
+  const board = { ...EMPTY_BOARD, ...((boardRes.data as Board | null) ?? {}) };
 
   // Vote counts only leave the server once the results are public.
   const finalists: PublicFinalist[] = rawFinalists.map(({ votes, ...rest }) =>
     stats.phase === "results" && votes !== null ? { ...rest, votes } : rest,
   );
 
-  return { stats, posts, finalists };
+  return { stats, posts, finalists, board };
+}
+
+/** Just the phase and dates (for /nominate). */
+export async function loadStats(): Promise<Stats> {
+  const { data } = await publicClient().rpc("stats");
+  return { ...FALLBACK_STATS, ...((data as Stats | null) ?? {}) };
 }

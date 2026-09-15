@@ -1,13 +1,16 @@
 import { ImageResponse } from "next/og";
 
-export const alt = "Taiwan → Japan AI Representation Benchmark 2026";
+export const alt =
+  "過去五年，哪些台灣新創最值得作為日本市場發展案例？｜Taiwan → Japan 2026";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-const WORDMARK = "AI REPRESENTATION BENCHMARK";
-const KICKER = "TAIWAN → JAPAN · 2026";
-const HEADLINE = "哪些台灣新創，最值得作為日本市場發展案例？";
-const DISCLAIMER = "本活動反映社群關注與市場認知，不構成企業赴日業績的客觀排名。";
+const KICKER = "TAIWAN → JAPAN 2026";
+const LINE_1 = "過去五年，你認為哪些台灣新創";
+const LINE_2A = "最值得作為";
+const LINE_2B = "日本市場";
+const LINE_2C = "發展案例？";
+const FOOT = "輸入公司名稱就能提名。一起整理台灣新創前進日本的案例。";
 
 /**
  * Satori cannot read woff2 and ships no CJK glyphs, so ask Google Fonts for a
@@ -31,88 +34,117 @@ async function loadFont(
   }
 }
 
+/** Spec v6 §2: the question + TAIWAN → JAPAN, in the v5 campaign palette. */
 export default async function OgImage() {
-  const [serif, sans] = await Promise.all([
-    loadFont("Noto+Serif+TC", 900, HEADLINE),
-    loadFont("Noto+Sans+TC", 400, DISCLAIMER + WORDMARK + KICKER),
+  const [black, regular, cond] = await Promise.all([
+    loadFont("Noto+Sans+TC", 900, LINE_1 + LINE_2A + LINE_2B + LINE_2C),
+    loadFont("Noto+Sans+TC", 500, FOOT),
+    loadFont("Barlow+Semi+Condensed", 800, KICKER + "TAIWAN → JAPAN"),
   ]);
 
   const fonts = [
-    serif
-      ? { name: "Noto Serif TC", data: serif, style: "normal" as const, weight: 900 as const }
+    black
+      ? {
+          name: "Noto Sans TC",
+          data: black,
+          style: "normal" as const,
+          weight: 900 as const,
+        }
       : null,
-    sans
-      ? { name: "Noto Sans TC", data: sans, style: "normal" as const, weight: 400 as const }
+    regular
+      ? {
+          name: "Noto Sans TC",
+          data: regular,
+          style: "normal" as const,
+          weight: 500 as const,
+        }
+      : null,
+    cond
+      ? {
+          name: "Barlow",
+          data: cond,
+          style: "normal" as const,
+          weight: 800 as const,
+        }
       : null,
   ].filter((f) => f !== null);
 
   return new ImageResponse(
-    (
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        padding: "60px 72px 56px",
+        background: "#00508E",
+        color: "#FFFFFF",
+        fontFamily: "Noto Sans TC",
+        borderBottom: "14px solid #F2C744",
+        position: "relative",
+      }}
+    >
       <div
         style={{
-          width: "100%",
-          height: "100%",
+          position: "absolute",
+          right: -20,
+          bottom: -40,
           display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          padding: "64px 72px",
-          background: "#FFFFFF",
-          color: "#1E1E1E",
-          fontFamily: "Noto Sans TC",
-          borderTop: "14px solid #0F2440",
+          fontFamily: "Barlow",
+          fontWeight: 800,
+          fontSize: 190,
+          color: "rgba(255,255,255,0.08)",
+          letterSpacing: 2,
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <div
-            style={{
-              display: "flex",
-              fontSize: 26,
-              letterSpacing: 6,
-              color: "#0F2440",
-            }}
-          >
-            {WORDMARK}
-          </div>
-          <div
-            style={{
-              display: "flex",
-              marginTop: 8,
-              fontSize: 18,
-              letterSpacing: 8,
-              color: "#5B6474",
-            }}
-          >
-            {KICKER}
-          </div>
-        </div>
-
+        TAIWAN → JAPAN
+      </div>
+      <div style={{ display: "flex" }}>
         <div
           style={{
             display: "flex",
-            fontFamily: "Noto Serif TC",
-            fontWeight: 900,
-            fontSize: 74,
-            lineHeight: 1.25,
+            fontFamily: "Barlow",
+            fontWeight: 800,
+            fontSize: 28,
+            letterSpacing: 5,
+            background: "#FFE38A",
             color: "#0F2440",
-            maxWidth: 980,
+            padding: "6px 16px",
           }}
         >
-          {HEADLINE}
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            paddingTop: 22,
-            borderTop: "2px solid #D3DBE6",
-            fontSize: 22,
-            color: "#5B6474",
-          }}
-        >
-          {DISCLAIMER}
+          {KICKER}
         </div>
       </div>
-    ),
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          fontWeight: 900,
+          fontSize: 70,
+          lineHeight: 1.3,
+        }}
+      >
+        <div style={{ display: "flex" }}>{LINE_1}</div>
+        <div style={{ display: "flex" }}>
+          {LINE_2A}
+          <span style={{ color: "#FFE38A" }}>{LINE_2B}</span>
+          {LINE_2C}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          fontSize: 26,
+          fontWeight: 500,
+          color: "#DCE9F7",
+        }}
+      >
+        {FOOT}
+      </div>
+    </div>,
     { ...size, fonts: fonts.length > 0 ? fonts : undefined },
   );
 }

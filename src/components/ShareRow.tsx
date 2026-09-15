@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 
-const TEXT =
-  "Taiwan → Japan AI Representation Benchmark 2026：哪些台灣新創，最值得作為日本市場發展案例？";
+const DEFAULT_TEXT =
+  "Taiwan → Japan 2026：過去五年，哪些台灣新創最值得作為日本市場發展案例？";
 
-export default function ShareRow() {
+export default function ShareRow({
+  text: TEXT = DEFAULT_TEXT,
+}: { text?: string } = {}) {
   const [copied, setCopied] = useState(false);
   const url = typeof window === "undefined" ? "" : window.location.origin + "/";
   const open = (u: string) => window.open(u, "_blank", "noopener");
@@ -28,7 +30,8 @@ export default function ShareRow() {
         type="button"
         onClick={() =>
           open(
-            "https://line.me/R/share?text=" + encodeURIComponent(`${TEXT} ${url}`),
+            "https://line.me/R/share?text=" +
+              encodeURIComponent(`${TEXT} ${url}`),
           )
         }
       >
