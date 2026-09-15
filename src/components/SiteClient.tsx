@@ -372,29 +372,6 @@ export default function SiteClient({
             </div>
           </Band>
 
-          <Band id="faq" chip="FAQ" title="常見問題">
-            <div className="acc">
-              <details>
-                <summary>可以提名自己的公司嗎？</summary>
-                <div className="a">可以，提名理由需具體。</div>
-              </details>
-              <details>
-                <summary>為什麼第一階段看不到票數？</summary>
-                <div className="a">
-                  為避免動員與誤讀，第一階段只顯示近期提名與參與人數，第二階段才以統一名單比較。
-                </div>
-              </details>
-              <details>
-                <summary>前三名會得到什麼？</summary>
-                <div className="a">
-                  一份公開的 IQ Lite Japan Edition，回答三件事：AI
-                  如何理解與描述這家公司、公司與主要競爭者在 AI
-                  答案中有何不同、目前最值得優先處理的行動。報告將在取得必要授權後公開提供下載。
-                </div>
-              </details>
-            </div>
-          </Band>
-
           <section id="convert">
             <div className="band">
               <span className="chip">Your Market</span>
@@ -431,11 +408,35 @@ export default function SiteClient({
                 </a>
               </div>
             </div>
-            <div className="partners" id="partners">
-              <span className="chip">Ecosystem and Media Partners</span>
-              <div>{stats.partners_text}</div>
-            </div>
           </section>
+
+          <Band id="faq" chip="FAQ" title="常見問題">
+            <div className="acc">
+              <details>
+                <summary>可以提名自己的公司嗎？</summary>
+                <div className="a">可以，提名理由需具體。</div>
+              </details>
+              <details>
+                <summary>為什麼第一階段看不到票數？</summary>
+                <div className="a">
+                  為避免動員與誤讀，第一階段只顯示近期提名與參與人數，第二階段才以統一名單比較。
+                </div>
+              </details>
+              <details>
+                <summary>前三名會得到什麼？</summary>
+                <div className="a">
+                  一份公開的 IQ Lite Japan Edition，回答三件事：AI
+                  如何理解與描述這家公司、公司與主要競爭者在 AI
+                  答案中有何不同、目前最值得優先處理的行動。報告將在取得必要授權後公開提供下載。
+                </div>
+              </details>
+            </div>
+          </Band>
+
+          <div className="partners" id="partners">
+            <span className="chip">Ecosystem and Media Partners</span>
+            <div>{stats.partners_text}</div>
+          </div>
         </div>
       </SiteChrome>
 
