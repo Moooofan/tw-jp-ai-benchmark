@@ -155,13 +155,18 @@ export type AdminCompany = {
   last_nominated_at: string | null;
 };
 
-/** admin_nominations() row (v6r). reason is null for pre-v6r nominations. */
+/**
+ * admin_nominations() row (v6r, +email in v6e). reason is null for pre-v6r
+ * nominations; email is null for nominations made before v6e or before the
+ * frontend required it. Never shown outside /admin.
+ */
 export type AdminNomination = {
   id: number;
   domain: string;
   display_name: string | null;
   reason: string | null;
   typed_name: string | null;
+  email: string | null;
   created_at: string | null;
 };
 

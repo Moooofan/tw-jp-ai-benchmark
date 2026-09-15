@@ -263,6 +263,68 @@ $$`;
     line?.trim(),
   );
 }
+
+// ------------------------------------------------------------- v6e: email
+{
+  // The 4-arg overload is callable by anon (no permission error) and an
+  // invalid email is rejected before any write.
+  const { error } = await sb.rpc("nominate_company", {
+    p_domain: "rls-probe.example",
+    p_display_name: "rls-probe",
+    p_reason: "1234567890",
+    p_email: "not-an-email",
+  });
+  record(
+    "anon can call 4-arg nominate_company(); invalid email rejected",
+    !!error && error.message.includes("請填寫正確的 Email。"),
+    error ? error.message : "unexpectedly succeeded",
+  );
+}
+{
+  // As role anon inside one transaction: the 3-arg overload still works
+  // unchanged (v6e must be additive-only), and the new 4-arg overload stores
+  // a trimmed, lower-cased email. Everything rolls back at the end.
+  const sql = `do $$
+declare j3 json; j4 json; stored_email text;
+begin
+  execute 'set local role anon';
+  j3 := public.nominate_company('rls-probe.example', 'rls-probe', '這是三參數版本仍然可用的驗證理由');
+  j4 := public.nominate_company('rls-probe.example', 'rls-probe', '這是四參數版本寫入信箱的驗證理由', '  RLS-Probe@Example.COM ');
+  execute 'reset role';
+  if j3->>'domain' is distinct from 'rls-probe.example' then
+    raise exception 'THREE_ARG_BROKEN json=%', j3;
+  end if;
+  select nm.email into stored_email from public.nominations nm
+    where nm.domain = 'rls-probe.example' order by nm.id desc limit 1;
+  if j4->>'domain' is distinct from 'rls-probe.example'
+     or stored_email is distinct from 'rls-probe@example.com' then
+    raise exception 'ROLLBACK_BAD email=% json=%', stored_email, j4;
+  end if;
+  raise exception 'ROLLBACK_OK';
+end;
+$$`;
+  let out = "";
+  try {
+    out = execFileSync("node", ["scripts/apply-sql.mjs", "--sql", sql], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 120000,
+    });
+  } catch (e) {
+    out = String((e.stdout || "") + (e.stderr || "") || e.message);
+  }
+  const line =
+    out
+      .split("\n")
+      .find((l) => /ROLLBACK_|THREE_ARG_BROKEN/.test(l)) ??
+    out.trim().split("\n").slice(-1)[0];
+  record(
+    "rollback test: 3-arg nominate_company unchanged; 4-arg stores lower/trimmed email (v6e)",
+    /ROLLBACK_OK/.test(out),
+    line?.trim(),
+  );
+}
+
 await allowed("anon can call board()", sb.rpc("board"));
 await denied(
   "anon cannot read companies",

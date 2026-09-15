@@ -195,7 +195,15 @@ export default function AdminCompanies({
     downloadCsv(
       `nominations-${stampToday()}.csv`,
       toCsv([
-        ["id", "created_at", "domain", "display_name", "typed_name", "reason"],
+        [
+          "id",
+          "created_at",
+          "domain",
+          "display_name",
+          "typed_name",
+          "reason",
+          "email",
+        ],
         ...noms.map((n) => [
           n.id,
           n.created_at,
@@ -203,6 +211,7 @@ export default function AdminCompanies({
           n.display_name,
           n.typed_name,
           n.reason,
+          n.email,
         ]),
       ]),
     );
@@ -349,7 +358,7 @@ export default function AdminCompanies({
           </select>
         </label>
         <button className="abtn" type="button" onClick={exportNominationsCsv}>
-          匯出提名 CSV（含理由）
+          匯出提名 CSV（含理由與 Email）
         </button>
       </div>
       <div className="tablewrap">
@@ -360,6 +369,7 @@ export default function AdminCompanies({
               <th>公司</th>
               <th>輸入的名稱</th>
               <th>提名理由</th>
+              <th>Email</th>
             </tr>
           </thead>
           <tbody>
@@ -374,11 +384,14 @@ export default function AdminCompanies({
                 <td>
                   {n.reason ?? <span className="note">（改版前的提名，無理由）</span>}
                 </td>
+                <td>
+                  {n.email ?? <span className="note">（無 Email）</span>}
+                </td>
               </tr>
             ))}
             {shownNoms.length === 0 ? (
               <tr>
-                <td colSpan={4} className="note">
+                <td colSpan={5} className="note">
                   還沒有提名。
                 </td>
               </tr>

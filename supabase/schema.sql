@@ -2623,3 +2623,176 @@ grant execute on function public.nominate_company(text, text) to anon, authentic
 grant execute on function public.admin_nominations(text) to authenticated;
 
 -- END v6r
+
+-- v6e — optional participant email on /nominate, additive only. The 3-arg
+-- nominate_company(domain, name, reason) keeps working unchanged; a new
+-- 4-arg overload adds a required, unverified, non-public email. The
+-- commander retires the 3-arg overload later via the v6e-retire block below
+-- (NOT applied by this migration). BEGIN v6e
+-- Apply statement by statement:  node scripts/apply-sql.mjs v6e
+-- ===========================================================================
+
+alter table public.nominations add column if not exists email text;
+
+-- Same rules as the 3-arg nominate_company(), plus a required email: trimmed,
+-- lower-cased, format-checked. Never verified, never returned to the client.
+create or replace function public.nominate_company(
+  p_domain text,
+  p_display_name text,
+  p_reason text,
+  p_email text
+)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_phase text := public.effective_phase();
+  v_domain text := public.normalize_domain(p_domain);
+  v_name text := left(regexp_replace(btrim(coalesce(p_display_name, '')), '\s+', ' ', 'g'), 60);
+  v_reason text := btrim(regexp_replace(coalesce(p_reason, ''), '\s+', ' ', 'g'));
+  v_email text := lower(btrim(coalesce(p_email, '')));
+  v_c public.companies;
+  v_hops int := 0;
+  v_limited boolean := false;
+begin
+  if v_phase = 'pre' then
+    raise exception '提名尚未開放。';
+  end if;
+  if v_phase is distinct from 'nominate' then
+    raise exception '提名期間已結束。';
+  end if;
+  if char_length(v_reason) not between 10 and 50 then
+    raise exception '提名理由請寫 10 到 50 字。';
+  end if;
+  if v_email !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請填寫正確的 Email。';
+  end if;
+  if not public.valid_domain(v_domain) then
+    raise exception '請輸入正確的官方網站，例如 https://example.com';
+  end if;
+
+  select * into v_c from public.companies c where c.domain = v_domain;
+  while v_c.merged_into is not null and v_hops < 5 loop
+    select * into v_c from public.companies c where c.domain = v_c.merged_into;
+    v_hops := v_hops + 1;
+  end loop;
+
+  if v_c.domain is null and v_name = '' then
+    raise exception '請輸入公司名稱。';
+  end if;
+
+  if v_uid is not null and (
+    select count(*) from public.nominations n
+    where n.session_id = v_uid and n.created_at > now() - interval '1 hour'
+  ) >= 20 then
+    v_limited := true;
+  end if;
+  if v_c.domain is not null and (
+    select count(*) from public.nominations n
+    where n.domain = v_c.domain and n.created_at > now() - interval '1 hour'
+  ) >= 200 then
+    v_limited := true;
+  end if;
+
+  if v_limited then
+    return json_build_object(
+      'domain', coalesce(v_c.domain, v_domain),
+      'display_name', coalesce(v_c.display_name, v_name),
+      'aliases', to_json(coalesce(v_c.aliases, '{}'::text[])),
+      'ok', true
+    );
+  end if;
+
+  if v_c.domain is null then
+    insert into public.companies (domain, display_name, status)
+    values (v_domain, v_name, 'pending')
+    on conflict (domain) do nothing;
+    select * into v_c from public.companies c where c.domain = v_domain;
+  end if;
+
+  insert into public.nominations (domain, session_id, typed_name, reason, email)
+  values (v_c.domain, v_uid, nullif(v_name, ''), v_reason, v_email);
+
+  return json_build_object(
+    'domain', v_c.domain,
+    'display_name', v_c.display_name,
+    'aliases', to_json(v_c.aliases),
+    'ok', true
+  );
+end;
+$$;
+
+-- Admin: nominations with reasons and email, newest first. Dropped and
+-- recreated because CREATE OR REPLACE FUNCTION cannot append a column to an
+-- existing RETURNS TABLE signature.
+drop function if exists public.admin_nominations(text);
+
+create function public.admin_nominations(p_domain text default null)
+returns table (
+  id bigint,
+  domain text,
+  display_name text,
+  reason text,
+  typed_name text,
+  email text,
+  created_at timestamptz
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  return query
+    select nm.id, nm.domain, c.display_name, nm.reason, nm.typed_name, nm.email, nm.created_at
+    from public.nominations nm
+    left join public.companies c on c.domain = nm.domain
+    where p_domain is null or nm.domain = p_domain
+    order by nm.created_at desc, nm.id desc;
+end;
+$$;
+
+revoke all on function public.nominate_company(text, text, text, text) from public, anon, authenticated;
+
+revoke all on function public.admin_nominations(text) from public, anon, authenticated;
+
+grant execute on function public.nominate_company(text, text, text, text) to anon, authenticated;
+
+grant execute on function public.admin_nominations(text) to authenticated;
+
+-- END v6e
+
+-- v6e-retire — retires the 3-arg nominate_company(domain, name, reason) once
+-- the new frontend (which always calls the 4-arg overload) is deployed. NOT
+-- applied by this migration; the commander runs it separately. BEGIN v6e-retire
+--   node scripts/apply-sql.mjs v6e-retire
+-- ===========================================================================
+
+create or replace function public.nominate_company(
+  p_domain text,
+  p_display_name text,
+  p_reason text
+)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+begin
+  raise exception '提名方式已更新，請重新整理頁面。';
+end;
+$$;
+
+revoke all on function public.nominate_company(text, text, text) from public, anon, authenticated;
+
+grant execute on function public.nominate_company(text, text, text) to anon, authenticated;
+
+-- END v6e-retire

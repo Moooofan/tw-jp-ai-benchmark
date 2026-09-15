@@ -6,6 +6,7 @@ import {
   ArrowRight,
   ExternalLink,
   Globe,
+  Mail,
   PenLine,
   RotateCcw,
   Search,
@@ -16,12 +17,15 @@ import type { CompanyMatch, Stats } from "@/lib/types";
 import Favicon from "./Favicon";
 import Icon from "./Icon";
 import { JUST_NOMINATED_KEY } from "./NominationBoard";
+import { readSavedEmail, writeSavedEmail } from "./ParticipantEmail";
 import ShareRow from "./ShareRow";
 import SiteChrome, { type ChromeStory } from "./SiteChrome";
 
 const SEARCH_MS = 250;
 const REASON_MIN = 10;
 const REASON_MAX = 50;
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const EMAIL_ERR = "請填寫正確的 Email。";
 
 /** Same normalisation as nominate_company(): collapse whitespace, trim. */
 const cleanReason = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -52,9 +56,10 @@ function CompanyCard({ c }: { c: CompanyMatch }) {
 }
 
 /**
- * `/nominate` (spec v6 §4): company name -> pick a match (or give the
- * official website) -> confirm + 10–50 character reason -> done. No email,
- * no cap. The reason requirement (v6r) overrides the v6 spec's "no reason".
+ * `/nominate` (spec v6 §4): company name + email -> pick a match (or give the
+ * official website) -> confirm + 10–50 character reason -> done. No cap. The
+ * reason requirement (v6r) overrides the v6 spec's "no reason"; the email
+ * field (v6e) is required but never verified and never made public.
  */
 export default function NominateClient({
   stats,
@@ -73,8 +78,14 @@ export default function NominateClient({
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("");
+  const [email, setEmail] = useState("");
+  const [emailErr, setEmailErr] = useState("");
   const nameInput = useRef<HTMLInputElement>(null);
   const siteInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setEmail(readSavedEmail());
+  }, []);
 
   useEffect(() => {
     const q = name.trim();
@@ -128,18 +139,25 @@ export default function NominateClient({
 
   async function nominate(c: CompanyMatch) {
     const r = cleanReason(reason);
+    const em = email.trim();
+    if (!EMAIL_RE.test(em)) {
+      setEmailErr(EMAIL_ERR);
+      return;
+    }
     setErr("");
     setBusy(true);
     const { data, error } = await supabase.rpc("nominate_company", {
       p_domain: c.domain,
       p_display_name: name.trim() || c.display_name,
       p_reason: r,
+      p_email: em,
     });
     setBusy(false);
     if (error) {
       setErr(errText(error));
       return;
     }
+    writeSavedEmail(em);
     try {
       window.sessionStorage.setItem(JUST_NOMINATED_KEY, "1");
     } catch {
@@ -161,6 +179,7 @@ export default function NominateClient({
     setShowSite(false);
     setReason("");
     setErr("");
+    setEmailErr("");
     setTimeout(() => nameInput.current?.focus(), 0);
   }
 
@@ -213,6 +232,7 @@ export default function NominateClient({
     const c = step.company;
     const len = cleanReason(reason).length;
     const reasonOk = len >= REASON_MIN && len <= REASON_MAX;
+    const emailOk = EMAIL_RE.test(email.trim());
     body = (
       <div className="flow">
         <h3>是這家公司嗎？</h3>
@@ -253,7 +273,7 @@ export default function NominateClient({
           <button
             type="button"
             className="btn btn--red"
-            disabled={busy || !reasonOk}
+            disabled={busy || !reasonOk || !emailOk}
             onClick={() => void nominate(c)}
           >
             {busy ? "提名中…" : "送出提名"}
@@ -294,6 +314,31 @@ export default function NominateClient({
               setErr("");
             }}
           />
+        </div>
+
+        <div className="f">
+          <label htmlFor="email">
+            <Icon icon={Mail} />
+            你的 Email
+          </label>
+          <input
+            id="email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            placeholder="name@company.com"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setEmailErr("");
+              setErr("");
+            }}
+            onBlur={() => {
+              if (!EMAIL_RE.test(email.trim())) setEmailErr(EMAIL_ERR);
+            }}
+          />
+          <p className="fine">只用來聯繫與避免重複，不會公開。</p>
+          {emailErr ? <p className="err">{emailErr}</p> : null}
         </div>
 
         {matches.length > 0 ? (
