@@ -270,6 +270,87 @@ await mustError(
   sb.rpc("admin_build_finalists"),
 );
 
+// ---------------------------------------------------------------- v7 Phase 2
+await allowed("anon can call vote_board()", sb.rpc("vote_board"));
+await allowed(
+  "anon can call company_detail()",
+  sb.rpc("company_detail", { p_domain: "rls-probe.example" }),
+);
+await allowed("anon can call reason_corpus()", sb.rpc("reason_corpus"));
+await allowed(
+  "anon can call vote_candidates()",
+  sb.rpc("vote_candidates", { q: "" }),
+);
+await allowed(
+  "anon can call my_vote_state()",
+  sb.rpc("my_vote_state", { p_email: "rls-probe@example.com" }),
+);
+for (const t of [
+  "ballots",
+  "ballot_picks",
+  "reason_reactions",
+  "testers",
+  "leaderboard_snapshots",
+]) {
+  await denied(`anon cannot read ${t}`, sb.from(t).select("*").limit(1));
+}
+await mustErrorLater("anon cannot insert ballots", () =>
+  sb.from("ballots").insert({
+    email_key: "rls-probe@example.com",
+    email: "rls-probe@example.com",
+    ballot_date: "2026-09-28",
+  }),
+);
+{
+  // Only meaningful while the live phase is not 'vote' (stage 1 runs in nominate).
+  const { data: phase } = await sb.rpc("effective_phase");
+  if (phase === "vote") {
+    record("cast_ballot/react_reason phase gate", true, "skipped: live phase is vote");
+  } else {
+    const cast = await sb.rpc("cast_ballot", {
+      p_email: "rls-probe@example.com",
+      p_picks: [{ domain: "rls-probe.example", reason: "rls probe reason text" }],
+    });
+    record(
+      `cast_ballot() rejects a non-tester in phase ${phase}`,
+      !!cast.error && /投票尚未開放|投票已截止/.test(cast.error.message),
+      cast.error ? cast.error.message : "unexpectedly succeeded",
+    );
+    const react = await sb.rpc("react_reason", {
+      p_pick_id: 1,
+      p_email: "rls-probe@example.com",
+      p_value: 1,
+    });
+    record(
+      `react_reason() rejects a non-tester in phase ${phase}`,
+      !!react.error && /投票尚未開放|投票已截止/.test(react.error.message),
+      react.error ? react.error.message : "unexpectedly succeeded",
+    );
+  }
+}
+for (const [fn, args] of [
+  ["admin_ballots", { p_limit: 1, p_offset: 0 }],
+  ["admin_set_ballot_void", { p_id: 1, p_voided: true }],
+  ["admin_set_reason_hidden", { p_pick_id: 1, p_hidden: true }],
+  ["admin_set_vote_adjust", { p_domain: "rls-probe.example", p_adjust: 1 }],
+  ["admin_testers_set", { p_email: "rls-probe@example.com", p_on: true }],
+  ["admin_vote_stats", undefined],
+  ["company_votes", undefined],
+  ["take_leaderboard_snapshot", undefined],
+]) {
+  await mustErrorLater(`${fn}() rejects anon`, () => sb.rpc(fn, args));
+}
+{
+  // vote_board() must never carry an email address.
+  const { data } = await sb.rpc("vote_board");
+  const text = JSON.stringify(data ?? {});
+  record(
+    "vote_board() exposes no email",
+    !/@/.test(text) && !/email/i.test(text),
+    `keys: ${data ? Object.keys(data).sort().join(",") : ""}`,
+  );
+}
+
 // Nothing must have been written by the probes above.
 const { count } = await sb
   .from("posts_public")

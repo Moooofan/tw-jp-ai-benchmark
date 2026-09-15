@@ -154,3 +154,128 @@ export type AdminCompany = {
   first_nominated_at: string | null;
   last_nominated_at: string | null;
 };
+
+// ---------------------------------------------------------------- v7 Phase 2
+
+/** One pick in a `cast_ballot` payload. `reason` is 10–50 characters. */
+export type BallotPickInput = { domain: string; reason: string };
+
+/** What `cast_ballot` returns. `ballot_date` is the Asia/Taipei day. */
+export type CastBallotResult = {
+  ballot_id: number;
+  ballot_date: string;
+  picks: { pick_id: number; domain: string }[];
+};
+
+/** What `react_reason` returns (1 like, -1 dislike, 0 clear). */
+export type ReactionCounts = { likes: number; dislikes: number };
+
+/** What `my_vote_state` returns. */
+export type MyVoteState = {
+  voted_today: boolean;
+  today: { domain: string; display_name: string; reason: string }[];
+  reactions: { pick_id: number; value: 1 | -1 }[];
+};
+
+export const EMPTY_VOTE_STATE: MyVoteState = {
+  voted_today: false,
+  today: [],
+  reactions: [],
+};
+
+/** A public reason card (`vote_board` hot/latest reasons). */
+export type ReasonCard = {
+  pick_id: number;
+  domain: string;
+  display_name: string;
+  reason: string;
+  likes: number;
+  dislikes: number;
+};
+
+export type LeaderboardRow = {
+  rank: number;
+  domain: string;
+  display_name: string;
+  votes: number;
+  reasons: number;
+  movement: Movement;
+};
+
+/** What `vote_board` returns. */
+export type VoteBoard = {
+  total_votes: number;
+  total_reasons: number;
+  total_voters: number;
+  updated_at: string | null;
+  leaderboard: LeaderboardRow[];
+  hot_reasons: ReasonCard[];
+  latest_reasons: ReasonCard[];
+  trend: { day: string; ballots: number; reasons: number }[];
+};
+
+export const EMPTY_VOTE_BOARD: VoteBoard = {
+  total_votes: 0,
+  total_reasons: 0,
+  total_voters: 0,
+  updated_at: null,
+  leaderboard: [],
+  hot_reasons: [],
+  latest_reasons: [],
+  trend: [],
+};
+
+/** What `company_detail` returns (null when the domain is not a candidate). */
+export type CompanyDetail = {
+  domain: string;
+  display_name: string;
+  aliases: string[];
+  rank: number;
+  votes: number;
+  reasons_count: number;
+  reasons: {
+    pick_id: number;
+    reason: string;
+    likes: number;
+    dislikes: number;
+    created_at: string;
+  }[];
+};
+
+/** What `admin_ballots` returns. */
+export type AdminBallots = {
+  total: number;
+  ballots: {
+    id: number;
+    email: string;
+    email_key: string;
+    ballot_date: string;
+    session_id: string | null;
+    voided: boolean;
+    created_at: string;
+    picks: {
+      pick_id: number;
+      domain: string;
+      display_name: string;
+      reason: string;
+      hidden: boolean;
+      likes: number;
+      dislikes: number;
+    }[];
+  }[];
+};
+
+/** One row of `admin_vote_stats`. votes = picks + bonus + adjust. */
+export type AdminVoteStat = {
+  domain: string;
+  display_name: string;
+  status: "active" | "pending" | "hidden";
+  is_candidate: boolean;
+  rank: number | null;
+  picks: number;
+  reasons: number;
+  reaction_net: number;
+  bonus: number;
+  adjust: number;
+  votes: number;
+};

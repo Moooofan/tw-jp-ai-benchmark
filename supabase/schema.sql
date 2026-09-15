@@ -1511,3 +1511,866 @@ grant execute on function public.admin_company_stats() to authenticated;
 grant execute on function public.admin_merge_company(text, text) to authenticated;
 
 -- END v6
+
+-- ===========================================================================
+-- v7 — Phase 2 vote and perception per campaign memo v4.0 (SPEC-v7-phase2.md). BEGIN v7
+-- Email-keyed daily ballots (1 per Asia/Taipei day, 1-3 companies, one
+-- 10-50 char reason each), likes and dislikes on reasons that shift a
+-- company by trunc(net / settings.reaction_votes_per) votes, a public
+-- leaderboard with hourly lazy snapshots for rank movement. No table is
+-- reachable by anon or authenticated directly: everything goes through the
+-- security-definer RPCs below. Tester emails may write in any phase.
+-- Apply statement by statement:  node scripts/apply-sql.mjs v7
+-- ===========================================================================
+
+alter table public.settings add column if not exists reaction_votes_per int
+  not null default 10 check (reaction_votes_per > 0);
+
+alter table public.companies add column if not exists vote_adjust int not null default 0;
+
+create table if not exists public.testers (
+  email_key text primary key
+);
+
+create table if not exists public.ballots (
+  id bigserial primary key,
+  email_key text not null,
+  email text not null,
+  ballot_date date not null,
+  session_id uuid,
+  voided boolean not null default false,
+  created_at timestamptz default now(),
+  unique (email_key, ballot_date)
+);
+
+create index if not exists ballots_session_idx on public.ballots (session_id, created_at);
+
+create index if not exists ballots_date_idx on public.ballots (ballot_date);
+
+create table if not exists public.ballot_picks (
+  id bigserial primary key,
+  ballot_id bigint not null references public.ballots (id) on delete cascade,
+  domain text not null references public.companies (domain),
+  reason text not null check (char_length(reason) between 10 and 50),
+  hidden boolean not null default false,
+  created_at timestamptz default now(),
+  unique (ballot_id, domain)
+);
+
+create index if not exists ballot_picks_domain_idx on public.ballot_picks (domain, created_at);
+
+create index if not exists ballot_picks_created_at_idx on public.ballot_picks (created_at desc);
+
+create table if not exists public.reason_reactions (
+  pick_id bigint not null references public.ballot_picks (id) on delete cascade,
+  email_key text not null,
+  value smallint not null check (value in (-1, 1)),
+  created_at timestamptz default now(),
+  primary key (pick_id, email_key)
+);
+
+create index if not exists reason_reactions_email_idx on public.reason_reactions (email_key);
+
+create table if not exists public.leaderboard_snapshots (
+  taken_at timestamptz not null,
+  domain text not null,
+  rank int not null,
+  votes int not null,
+  primary key (taken_at, domain)
+);
+
+alter table public.testers enable row level security;
+
+alter table public.ballots enable row level security;
+
+alter table public.ballot_picks enable row level security;
+
+alter table public.reason_reactions enable row level security;
+
+alter table public.leaderboard_snapshots enable row level security;
+
+revoke all on public.testers from anon, authenticated;
+
+revoke all on public.ballots from anon, authenticated;
+
+revoke all on public.ballot_picks from anon, authenticated;
+
+revoke all on public.reason_reactions from anon, authenticated;
+
+revoke all on public.leaderboard_snapshots from anon, authenticated;
+
+revoke all on sequence public.ballots_id_seq from anon, authenticated;
+
+revoke all on sequence public.ballot_picks_id_seq from anon, authenticated;
+
+-- Per-company tally (D5, D6). is_candidate implements D1; rank is the public
+-- order among candidates (votes, then visible reasons, then earliest pick).
+-- A reason is visible when it is not hidden and its ballot is not voided.
+create or replace function public.company_votes()
+returns table (
+  domain text,
+  display_name text,
+  aliases text[],
+  status text,
+  is_candidate boolean,
+  picks int,
+  reasons int,
+  reaction_net int,
+  bonus int,
+  adjust int,
+  votes int,
+  first_pick_at timestamptz,
+  rank int
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with per as (
+    select greatest(coalesce((select s.reaction_votes_per from public.settings s where s.id = 1), 10), 1) as n
+  ),
+  p as (
+    select bp.domain,
+           count(*)::int as picks,
+           (count(*) filter (where not bp.hidden))::int as reasons,
+           min(bp.created_at) as first_pick_at
+    from public.ballot_picks bp
+    join public.ballots b on b.id = bp.ballot_id
+    where not b.voided
+    group by bp.domain
+  ),
+  r as (
+    select bp.domain, coalesce(sum(rr.value), 0)::int as net
+    from public.reason_reactions rr
+    join public.ballot_picks bp on bp.id = rr.pick_id
+    join public.ballots b on b.id = bp.ballot_id
+    where not b.voided and not bp.hidden
+    group by bp.domain
+  ),
+  c as (
+    select co.domain, co.display_name, co.aliases, co.status,
+           (co.status <> 'hidden' and co.merged_into is null
+             and exists (select 1 from public.nominations nm where nm.domain = co.domain)) as is_candidate,
+           coalesce(p.picks, 0) as picks,
+           coalesce(p.reasons, 0) as reasons,
+           coalesce(r.net, 0) as net,
+           (coalesce(r.net, 0) / (select per.n from per))::int as bonus,
+           co.vote_adjust as adjust,
+           p.first_pick_at
+    from public.companies co
+    left join p on p.domain = co.domain
+    left join r on r.domain = co.domain
+  )
+  select c.domain, c.display_name, c.aliases, c.status, c.is_candidate,
+         c.picks, c.reasons, c.net, c.bonus, c.adjust,
+         (c.picks + c.bonus + c.adjust)::int,
+         c.first_pick_at,
+         case when c.is_candidate then
+           (row_number() over (
+              partition by c.is_candidate
+              order by c.picks + c.bonus + c.adjust desc, c.reasons desc,
+                       c.first_pick_at asc nulls last, c.display_name, c.domain))::int
+         end
+  from c;
+$$;
+
+-- Visible reasons on public companies, with reaction counts.
+create or replace function public.reason_rows()
+returns table (
+  pick_id bigint,
+  domain text,
+  display_name text,
+  reason text,
+  likes int,
+  dislikes int,
+  created_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select bp.id, bp.domain, co.display_name, bp.reason,
+         coalesce(x.likes, 0), coalesce(x.dislikes, 0), bp.created_at
+  from public.ballot_picks bp
+  join public.ballots b on b.id = bp.ballot_id
+  join public.companies co on co.domain = bp.domain
+  left join (
+    select rr.pick_id,
+           (count(*) filter (where rr.value = 1))::int as likes,
+           (count(*) filter (where rr.value = -1))::int as dislikes
+    from public.reason_reactions rr
+    group by rr.pick_id
+  ) x on x.pick_id = bp.id
+  where not bp.hidden and not b.voided
+    and co.status <> 'hidden' and co.merged_into is null;
+$$;
+
+create or replace function public.is_tester(p_email_key text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (select 1 from public.testers t where t.email_key = p_email_key);
+$$;
+
+-- Hourly rank snapshot, taken lazily by vote_board() during phase vote only.
+create or replace function public.take_leaderboard_snapshot()
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtext('public.take_leaderboard_snapshot'));
+  if coalesce((select max(ls.taken_at) from public.leaderboard_snapshots ls), '-infinity'::timestamptz)
+     >= now() - interval '60 minutes' then
+    return;
+  end if;
+
+  insert into public.leaderboard_snapshots (taken_at, domain, rank, votes)
+  select clock_timestamp(), cv.domain, cv.rank, cv.votes
+  from public.company_votes() cv
+  where cv.is_candidate and cv.rank <= 200;
+
+  delete from public.leaderboard_snapshots where taken_at < now() - interval '30 days';
+end;
+$$;
+
+create or replace function public.vote_candidates(q text)
+returns table (domain text, display_name text, aliases text[])
+language sql
+stable
+security definer
+set search_path = public, extensions
+as $$
+  with t as (
+    select lower(btrim(coalesce(q, ''))) as k,
+           replace(replace(replace(lower(btrim(coalesce(q, ''))), '\', '\\'), '%', '\%'), '_', '\_') as p
+  )
+  select cv.domain, cv.display_name, cv.aliases
+  from public.company_votes() cv, t
+  where cv.is_candidate
+    and char_length(t.k) <= 80
+    and (
+      t.k = ''
+      or lower(cv.display_name) like '%' || t.p || '%'
+      or exists (select 1 from unnest(cv.aliases) a where lower(a) like '%' || t.p || '%')
+      or cv.domain like t.p || '%'
+      or (char_length(t.k) >= 3 and similarity(lower(cv.display_name), t.k) > 0.3)
+    )
+  order by
+    (t.k <> '' and (lower(cv.display_name) = t.k
+      or exists (select 1 from unnest(cv.aliases) a where lower(a) = t.k))) desc,
+    (t.k <> '' and lower(cv.display_name) like t.p || '%') desc,
+    case when t.k <> '' then similarity(lower(cv.display_name), t.k) else 0 end desc,
+    cv.rank
+  limit 12;
+$$;
+
+-- The daily ballot. Phase vote (or a tester email). D2, D3, D4, D1.
+create or replace function public.cast_ballot(p_email text, p_picks jsonb)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_phase text := public.effective_phase();
+  v_email text := btrim(coalesce(p_email, ''));
+  v_key text;
+  v_today date := (now() at time zone 'Asia/Taipei')::date;
+  v_n int;
+  v_item jsonb;
+  v_domain text;
+  v_reason text;
+  v_domains text[] := '{}';
+  v_reasons text[] := '{}';
+  v_ballot_id bigint;
+  v_pick_id bigint;
+  v_out json[] := '{}';
+  i int;
+begin
+  if char_length(v_email) > 254 or v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請確認 Email 格式。';
+  end if;
+  v_key := lower(v_email);
+
+  if v_phase is distinct from 'vote' and not public.is_tester(v_key) then
+    if v_phase in ('pre', 'nominate') then
+      raise exception '投票尚未開放。';
+    end if;
+    raise exception '投票已截止。';
+  end if;
+
+  if p_picks is null or jsonb_typeof(p_picks) <> 'array' or jsonb_array_length(p_picks) < 1 then
+    raise exception '請至少選擇 1 家公司。';
+  end if;
+  v_n := jsonb_array_length(p_picks);
+  if v_n > 3 then
+    raise exception '每張選票最多選 3 家公司。';
+  end if;
+
+  for v_item in select e.value from jsonb_array_elements(p_picks) e loop
+    if jsonb_typeof(v_item) <> 'object' then
+      raise exception '這個動作無法完成。';
+    end if;
+    v_domain := public.normalize_domain(v_item ->> 'domain');
+    v_reason := btrim(regexp_replace(coalesce(v_item ->> 'reason', ''), '\s+', ' ', 'g'));
+    if v_domain is null then
+      raise exception '這家公司不在候選名單中。';
+    end if;
+    if v_domain = any (v_domains) then
+      raise exception '同一家公司只能選一次。';
+    end if;
+    if char_length(v_reason) < 10 or char_length(v_reason) > 50 then
+      raise exception '每家公司的理由需要 10–50 個字。';
+    end if;
+    if not exists (
+      select 1 from public.companies c
+      where c.domain = v_domain and c.status <> 'hidden' and c.merged_into is null
+        and exists (select 1 from public.nominations nm where nm.domain = c.domain)
+    ) then
+      raise exception '這家公司不在候選名單中。';
+    end if;
+    v_domains := v_domains || v_domain;
+    v_reasons := v_reasons || v_reason;
+  end loop;
+
+  if exists (select 1 from public.ballots b where b.email_key = v_key and b.ballot_date = v_today) then
+    raise exception '今天已經投過了，明天可以再投一次。';
+  end if;
+
+  if v_uid is not null and (
+    select count(*) from public.ballots b
+    where b.session_id = v_uid and b.created_at > now() - interval '1 hour'
+  ) >= 30 then
+    raise exception '操作過於頻繁，請稍後再試。';
+  end if;
+
+  begin
+    insert into public.ballots (email_key, email, ballot_date, session_id)
+    values (v_key, v_email, v_today, v_uid)
+    returning id into v_ballot_id;
+  exception when unique_violation then
+    raise exception '今天已經投過了，明天可以再投一次。';
+  end;
+
+  for i in 1 .. v_n loop
+    insert into public.ballot_picks (ballot_id, domain, reason)
+    values (v_ballot_id, v_domains[i], v_reasons[i])
+    returning id into v_pick_id;
+    v_out := v_out || json_build_object('pick_id', v_pick_id, 'domain', v_domains[i]);
+  end loop;
+
+  return json_build_object(
+    'ballot_id', v_ballot_id,
+    'ballot_date', to_char(v_today, 'YYYY-MM-DD'),
+    'picks', array_to_json(v_out)
+  );
+end;
+$$;
+
+-- Like (1), dislike (-1) or clear (0) a reason. One stance per email per
+-- reason. D7: reacting to your own reason is silently ignored.
+create or replace function public.react_reason(p_pick_id bigint, p_email text, p_value smallint)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_phase text := public.effective_phase();
+  v_email text := btrim(coalesce(p_email, ''));
+  v_key text;
+  v_owner text;
+begin
+  if p_value is null or p_value not in (-1, 0, 1) then
+    raise exception '這個動作無法完成。';
+  end if;
+  if char_length(v_email) > 254 or v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請確認 Email 格式。';
+  end if;
+  v_key := lower(v_email);
+
+  if v_phase is distinct from 'vote' and not public.is_tester(v_key) then
+    if v_phase in ('pre', 'nominate') then
+      raise exception '投票尚未開放。';
+    end if;
+    raise exception '投票已截止。';
+  end if;
+
+  select b.email_key into v_owner
+  from public.ballot_picks bp
+  join public.ballots b on b.id = bp.ballot_id
+  join public.companies co on co.domain = bp.domain
+  where bp.id = p_pick_id and not bp.hidden and not b.voided
+    and co.status <> 'hidden' and co.merged_into is null;
+  if v_owner is null then
+    raise exception '這則理由已不存在。';
+  end if;
+
+  if v_owner <> v_key then
+    if p_value = 0 then
+      delete from public.reason_reactions rr where rr.pick_id = p_pick_id and rr.email_key = v_key;
+    else
+      insert into public.reason_reactions (pick_id, email_key, value)
+      values (p_pick_id, v_key, p_value)
+      on conflict (pick_id, email_key) do update set value = excluded.value, created_at = now();
+    end if;
+  end if;
+
+  return (
+    select json_build_object(
+      'likes', (count(*) filter (where rr.value = 1))::int,
+      'dislikes', (count(*) filter (where rr.value = -1))::int)
+    from public.reason_reactions rr where rr.pick_id = p_pick_id
+  );
+end;
+$$;
+
+create or replace function public.my_vote_state(p_email text)
+returns json
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_email text := btrim(coalesce(p_email, ''));
+  v_key text;
+  v_today date := (now() at time zone 'Asia/Taipei')::date;
+begin
+  if char_length(v_email) > 254 or v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    return json_build_object('voted_today', false, 'today', '[]'::json, 'reactions', '[]'::json);
+  end if;
+  v_key := lower(v_email);
+
+  return json_build_object(
+    'voted_today', exists (
+      select 1 from public.ballots b where b.email_key = v_key and b.ballot_date = v_today),
+    'today', coalesce((
+      select json_agg(json_build_object(
+               'domain', bp.domain,
+               'display_name', co.display_name,
+               'reason', bp.reason) order by bp.id)
+      from public.ballots b
+      join public.ballot_picks bp on bp.ballot_id = b.id
+      join public.companies co on co.domain = bp.domain
+      where b.email_key = v_key and b.ballot_date = v_today
+    ), '[]'::json),
+    'reactions', coalesce((
+      select json_agg(json_build_object('pick_id', x.pick_id, 'value', x.value))
+      from (
+        select rr.pick_id, rr.value from public.reason_reactions rr
+        where rr.email_key = v_key
+        order by rr.created_at desc
+        limit 2000
+      ) x
+    ), '[]'::json)
+  );
+end;
+$$;
+
+-- The public Community Intelligence board. Movement compares the live rank
+-- with the newest snapshot that is at least 60 minutes old.
+create or replace function public.vote_board()
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_base timestamptz;
+  v_today date := (now() at time zone 'Asia/Taipei')::date;
+  v_open date;
+  v_close date;
+begin
+  if public.effective_phase() = 'vote'
+     and coalesce((select max(ls.taken_at) from public.leaderboard_snapshots ls), '-infinity'::timestamptz)
+         < now() - interval '60 minutes' then
+    perform public.take_leaderboard_snapshot();
+  end if;
+
+  select max(ls.taken_at) into v_base
+  from public.leaderboard_snapshots ls
+  where ls.taken_at <= now() - interval '60 minutes';
+
+  select (s.vote_open at time zone 'Asia/Taipei')::date,
+         (s.vote_close at time zone 'Asia/Taipei')::date
+  into v_open, v_close
+  from public.settings s where s.id = 1;
+
+  return (
+    with cv as (
+      select * from public.company_votes() x where x.is_candidate
+    ),
+    rr as (
+      select * from public.reason_rows()
+    )
+    select json_build_object(
+      'total_votes', coalesce((select sum(cv.votes) from cv), 0)::int,
+      'total_reasons', coalesce((select sum(cv.reasons) from cv), 0)::int,
+      'total_voters', (select count(distinct b.email_key) from public.ballots b where not b.voided)::int,
+      'updated_at', now(),
+      'leaderboard', coalesce((
+        select json_agg(json_build_object(
+                 'rank', l.rank,
+                 'domain', l.domain,
+                 'display_name', l.display_name,
+                 'votes', l.votes,
+                 'reasons', l.reasons,
+                 'movement', l.movement) order by l.rank)
+        from (
+          select cv.rank, cv.domain, cv.display_name, cv.votes, cv.reasons,
+                 case
+                   when v_base is null or ls.rank is null then 'new'
+                   when ls.rank > cv.rank then 'up'
+                   when ls.rank < cv.rank then 'down'
+                   else 'same'
+                 end as movement
+          from cv
+          left join public.leaderboard_snapshots ls on ls.taken_at = v_base and ls.domain = cv.domain
+          order by cv.rank
+          limit 30
+        ) l
+      ), '[]'::json),
+      'hot_reasons', coalesce((
+        select json_agg(json_build_object(
+                 'pick_id', h.pick_id, 'domain', h.domain, 'display_name', h.display_name,
+                 'reason', h.reason, 'likes', h.likes, 'dislikes', h.dislikes)
+                 order by h.likes - h.dislikes desc, h.created_at desc, h.pick_id desc)
+        from (
+          select * from rr
+          order by rr.likes - rr.dislikes desc, rr.created_at desc, rr.pick_id desc
+          limit 12
+        ) h
+      ), '[]'::json),
+      'latest_reasons', coalesce((
+        select json_agg(json_build_object(
+                 'pick_id', h.pick_id, 'domain', h.domain, 'display_name', h.display_name,
+                 'reason', h.reason, 'likes', h.likes, 'dislikes', h.dislikes)
+                 order by h.created_at desc, h.pick_id desc)
+        from (
+          select * from rr order by rr.created_at desc, rr.pick_id desc limit 12
+        ) h
+      ), '[]'::json),
+      'trend', coalesce((
+        select json_agg(json_build_object(
+                 'day', to_char(d.day, 'YYYY-MM-DD'),
+                 'ballots', (select count(*) from public.ballots b
+                             where b.ballot_date = d.day and not b.voided)::int,
+                 'reasons', (select count(*) from public.ballot_picks bp
+                             join public.ballots b on b.id = bp.ballot_id
+                             join public.companies co on co.domain = bp.domain
+                             where b.ballot_date = d.day and not b.voided and not bp.hidden
+                               and co.status <> 'hidden' and co.merged_into is null)::int)
+                 order by d.day)
+        from (
+          select g::date as day
+          from generate_series(v_open::timestamp, least(v_close, v_today)::timestamp, interval '1 day') g
+          where v_open is not null and v_close is not null
+        ) d
+      ), '[]'::json)
+    )
+  );
+end;
+$$;
+
+create or replace function public.company_detail(p_domain text)
+returns json
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_domain text := public.normalize_domain(p_domain);
+  v_next text;
+  v_hops int := 0;
+  v_row record;
+begin
+  loop
+    select c.merged_into into v_next from public.companies c where c.domain = v_domain;
+    exit when v_next is null or v_hops >= 5;
+    v_domain := v_next;
+    v_hops := v_hops + 1;
+  end loop;
+
+  select * into v_row from public.company_votes() cv
+  where cv.domain = v_domain and cv.is_candidate;
+  if not found then
+    return null;
+  end if;
+
+  return json_build_object(
+    'domain', v_row.domain,
+    'display_name', v_row.display_name,
+    'aliases', to_json(v_row.aliases),
+    'rank', v_row.rank,
+    'votes', v_row.votes,
+    'reasons_count', v_row.reasons,
+    'reasons', coalesce((
+      select json_agg(json_build_object(
+               'pick_id', x.pick_id, 'reason', x.reason, 'likes', x.likes,
+               'dislikes', x.dislikes, 'created_at', x.created_at)
+               order by x.created_at desc, x.pick_id desc)
+      from (
+        select * from public.reason_rows() r
+        where r.domain = v_row.domain
+        order by r.created_at desc, r.pick_id desc
+        limit 200
+      ) x
+    ), '[]'::json)
+  );
+end;
+$$;
+
+create or replace function public.reason_corpus(p_domain text default null)
+returns text[]
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(array(
+    select r.reason from public.reason_rows() r
+    where p_domain is null or r.domain = public.normalize_domain(p_domain)
+    order by r.created_at desc, r.pick_id desc
+    limit 5000
+  ), '{}'::text[]);
+$$;
+
+create or replace function public.admin_ballots(p_limit int, p_offset int)
+returns json
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  return json_build_object(
+    'total', (select count(*) from public.ballots)::int,
+    'ballots', coalesce((
+      select json_agg(json_build_object(
+               'id', b.id,
+               'email', b.email,
+               'email_key', b.email_key,
+               'ballot_date', to_char(b.ballot_date, 'YYYY-MM-DD'),
+               'session_id', b.session_id,
+               'voided', b.voided,
+               'created_at', b.created_at,
+               'picks', coalesce((
+                 select json_agg(json_build_object(
+                          'pick_id', bp.id,
+                          'domain', bp.domain,
+                          'display_name', co.display_name,
+                          'reason', bp.reason,
+                          'hidden', bp.hidden,
+                          'likes', (select count(*) from public.reason_reactions rr
+                                    where rr.pick_id = bp.id and rr.value = 1)::int,
+                          'dislikes', (select count(*) from public.reason_reactions rr
+                                       where rr.pick_id = bp.id and rr.value = -1)::int
+                        ) order by bp.id)
+                 from public.ballot_picks bp
+                 join public.companies co on co.domain = bp.domain
+                 where bp.ballot_id = b.id
+               ), '[]'::json)
+             ) order by b.created_at desc, b.id desc)
+      from (
+        select * from public.ballots
+        order by created_at desc, id desc
+        limit least(greatest(coalesce(p_limit, 50), 1), 500)
+        offset greatest(coalesce(p_offset, 0), 0)
+      ) b
+    ), '[]'::json)
+  );
+end;
+$$;
+
+create or replace function public.admin_set_ballot_void(p_id bigint, p_voided boolean)
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  update public.ballots set voided = coalesce(p_voided, false) where id = p_id;
+  if not found then
+    raise exception '找不到選票。';
+  end if;
+end;
+$$;
+
+create or replace function public.admin_set_reason_hidden(p_pick_id bigint, p_hidden boolean)
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  update public.ballot_picks set hidden = coalesce(p_hidden, false) where id = p_pick_id;
+  if not found then
+    raise exception '找不到理由。';
+  end if;
+end;
+$$;
+
+create or replace function public.admin_set_vote_adjust(p_domain text, p_adjust int)
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  update public.companies set vote_adjust = coalesce(p_adjust, 0) where domain = p_domain;
+  if not found then
+    raise exception '找不到公司。';
+  end if;
+end;
+$$;
+
+-- Adds or removes a tester email; returns the full tester list.
+create or replace function public.admin_testers_set(p_email text, p_on boolean)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_key text := lower(btrim(coalesce(p_email, '')));
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  if v_key <> '' then
+    if v_key !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+      raise exception '請確認 Email 格式。';
+    end if;
+    if coalesce(p_on, false) then
+      insert into public.testers (email_key) values (v_key) on conflict (email_key) do nothing;
+    else
+      delete from public.testers t where t.email_key = v_key;
+    end if;
+  end if;
+  return coalesce((select json_agg(t.email_key order by t.email_key) from public.testers t), '[]'::json);
+end;
+$$;
+
+create or replace function public.admin_vote_stats()
+returns table (
+  domain text,
+  display_name text,
+  status text,
+  is_candidate boolean,
+  rank int,
+  picks int,
+  reasons int,
+  reaction_net int,
+  bonus int,
+  adjust int,
+  votes int
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  return query
+    select cv.domain, cv.display_name, cv.status, cv.is_candidate, cv.rank,
+           cv.picks, cv.reasons, cv.reaction_net, cv.bonus, cv.adjust, cv.votes
+    from public.company_votes() cv
+    where cv.is_candidate or cv.picks > 0 or cv.adjust <> 0
+    order by cv.rank asc nulls last, cv.votes desc, cv.display_name;
+end;
+$$;
+
+revoke all on function public.company_votes() from public, anon, authenticated;
+
+revoke all on function public.reason_rows() from public, anon, authenticated;
+
+revoke all on function public.is_tester(text) from public, anon, authenticated;
+
+revoke all on function public.take_leaderboard_snapshot() from public, anon, authenticated;
+
+revoke all on function public.vote_candidates(text) from public, anon, authenticated;
+
+revoke all on function public.cast_ballot(text, jsonb) from public, anon, authenticated;
+
+revoke all on function public.react_reason(bigint, text, smallint) from public, anon, authenticated;
+
+revoke all on function public.my_vote_state(text) from public, anon, authenticated;
+
+revoke all on function public.vote_board() from public, anon, authenticated;
+
+revoke all on function public.company_detail(text) from public, anon, authenticated;
+
+revoke all on function public.reason_corpus(text) from public, anon, authenticated;
+
+revoke all on function public.admin_ballots(int, int) from public, anon, authenticated;
+
+revoke all on function public.admin_set_ballot_void(bigint, boolean) from public, anon, authenticated;
+
+revoke all on function public.admin_set_reason_hidden(bigint, boolean) from public, anon, authenticated;
+
+revoke all on function public.admin_set_vote_adjust(text, int) from public, anon, authenticated;
+
+revoke all on function public.admin_testers_set(text, boolean) from public, anon, authenticated;
+
+revoke all on function public.admin_vote_stats() from public, anon, authenticated;
+
+grant execute on function public.vote_candidates(text) to anon, authenticated;
+
+grant execute on function public.cast_ballot(text, jsonb) to anon, authenticated;
+
+grant execute on function public.react_reason(bigint, text, smallint) to anon, authenticated;
+
+grant execute on function public.my_vote_state(text) to anon, authenticated;
+
+grant execute on function public.vote_board() to anon, authenticated;
+
+grant execute on function public.company_detail(text) to anon, authenticated;
+
+grant execute on function public.reason_corpus(text) to anon, authenticated;
+
+grant execute on function public.admin_ballots(int, int) to authenticated;
+
+grant execute on function public.admin_set_ballot_void(bigint, boolean) to authenticated;
+
+grant execute on function public.admin_set_reason_hidden(bigint, boolean) to authenticated;
+
+grant execute on function public.admin_set_vote_adjust(text, int) to authenticated;
+
+grant execute on function public.admin_testers_set(text, boolean) to authenticated;
+
+grant execute on function public.admin_vote_stats() to authenticated;
+
+-- END v7
