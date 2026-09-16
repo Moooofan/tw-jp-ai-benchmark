@@ -211,10 +211,11 @@ function rollbackTest(name, sql) {
   record(name, /ROLLBACK_OK/.test(out), line?.trim());
 }
 
-// v6r + v6e-retire: nominations need a 10–50 character reason and an email;
-// the 2-arg and 3-arg overloads only tell stale tabs to reload. Only probes
-// that fail are sent through PostgREST; success paths run in rolled-back DO
-// blocks.
+// v6r + v6e-retire: a nomination that DOES carry a reason and an email is
+// still held to 10–50 characters and a valid address (v6f only made them
+// optional); the 2-arg and 3-arg overloads only tell stale tabs to reload.
+// Only probes that fail are sent through PostgREST; success paths run in
+// rolled-back DO blocks.
 {
   const { error } = await sb.rpc("nominate_company", {
     p_domain: "rls-probe.example",
@@ -581,6 +582,110 @@ for (const [fn, args] of [
     `keys: ${data ? Object.keys(data).sort().join(",") : ""}`,
   );
 }
+
+// ------------------------------------------------ v6f Phase 1 without a form
+// Campaign memo v4.0 is back: no reason, no email. The 4-arg overload the
+// CURRENTLY DEPLOYED client calls must keep validating whatever it sends, and
+// must now also accept null/blank for both; a 5-arg overload adds the
+// per-browser client_id that keeps the ranking about people.
+{
+  // Null reason and email get past the reason/email checks — the call now
+  // fails on the website instead, which proves both checks were skipped.
+  const { error } = await sb.rpc("nominate_company", {
+    p_domain: "not a domain!",
+    p_display_name: "rls-probe",
+    p_reason: null,
+    p_email: null,
+  });
+  record(
+    "v6f: 4-arg nominate_company() accepts null reason and email",
+    !!error && error.message.includes("請輸入正確的官方網站"),
+    error ? error.message : "unexpectedly succeeded",
+  );
+}
+{
+  const { error } = await sb.rpc("nominate_company", {
+    p_domain: "not a domain!",
+    p_display_name: "rls-probe",
+    p_reason: "",
+    p_email: "   ",
+    p_client_id: "rls-probe-cid",
+  });
+  record(
+    "v6f: anon can call 5-arg nominate_company(); blank reason/email allowed",
+    !!error && error.message.includes("請輸入正確的官方網站"),
+    error ? error.message : "unexpectedly succeeded",
+  );
+}
+
+// As role anon: blank/null reason and email store null, while the exact call
+// the deployed client makes (real reason, real email) still validates and
+// still stores the trimmed, lower-cased values. Then everything rolls back.
+rollbackTest(
+  "rollback test: v6f 4-arg stores null reason/email; deployed client unchanged",
+  `do $$
+declare n int; nulls int; r text; e text;
+begin
+  execute 'set local role anon';
+  perform public.nominate_company('rls-probe.example', 'rls-probe', null, null);
+  perform public.nominate_company('rls-probe.example', 'rls-probe', '   ', '  ');
+  begin
+    perform public.nominate_company('rls-probe.example', 'rls-probe', '123456789', 'ok@example.com');
+    raise exception 'SHORT_REASON_ACCEPTED';
+  exception when others then
+    if sqlerrm not like '%10 到 50 字%' then raise; end if;
+  end;
+  begin
+    perform public.nominate_company('rls-probe.example', 'rls-probe', '這是部署中的前端會送出的提名理由', 'not-an-email');
+    raise exception 'BAD_EMAIL_ACCEPTED';
+  exception when others then
+    if sqlerrm not like '%正確的 Email%' then raise; end if;
+  end;
+  perform public.nominate_company('rls-probe.example', 'rls-probe', '  這是部署中的前端會送出的提名理由  ', '  Deployed@Example.COM ');
+  execute 'reset role';
+  select count(*) into n from public.nominations nm where nm.domain = 'rls-probe.example';
+  select count(*) into nulls from public.nominations nm
+    where nm.domain = 'rls-probe.example' and nm.reason is null and nm.email is null;
+  select nm.reason, nm.email into r, e from public.nominations nm
+    where nm.domain = 'rls-probe.example' order by nm.id desc limit 1;
+  if n <> 3 or nulls <> 2
+     or r is distinct from '這是部署中的前端會送出的提名理由'
+     or e is distinct from 'deployed@example.com' then
+    raise exception 'ROLLBACK_BAD n=% nulls=% reason=% email=%', n, nulls, r, e;
+  end if;
+  raise exception 'ROLLBACK_OK';
+end;
+$$`,
+);
+
+// The ranking after v6f: one browser nominating the same company three times
+// is one voter, a second browser is a second, and a row with neither email
+// nor client_id still counts as exactly one.
+rollbackTest(
+  "rollback test: v6f 5-arg stores client_id; one browser counts once",
+  `do $$
+declare v_voters int; v_noms int; v_cid text; v_cids int;
+begin
+  execute 'set local role anon';
+  perform public.nominate_company('rls-probe.example', 'rls-probe', null, null, 'cid-aaa');
+  perform public.nominate_company('rls-probe.example', 'rls-probe', null, null, 'cid-aaa');
+  perform public.nominate_company('rls-probe.example', 'rls-probe', null, null, '  cid-aaa  ');
+  perform public.nominate_company('rls-probe.example', 'rls-probe', null, null, 'cid-bbb');
+  perform public.nominate_company('rls-probe.example', 'rls-probe', null, null);
+  execute 'reset role';
+  select count(*) into v_cids from public.nominations nm
+    where nm.domain = 'rls-probe.example' and nm.client_id = 'cid-aaa';
+  select nm.client_id into v_cid from public.nominations nm
+    where nm.domain = 'rls-probe.example' order by nm.id desc limit 1;
+  select r.voters, r.noms into v_voters, v_noms
+    from public.nomination_rank() r where r.domain = 'rls-probe.example';
+  if v_cids <> 3 or v_cid is not null or v_voters <> 3 or v_noms <> 5 then
+    raise exception 'ROLLBACK_BAD cids=% last_cid=% voters=% noms=%', v_cids, v_cid, v_voters, v_noms;
+  end if;
+  raise exception 'ROLLBACK_OK';
+end;
+$$`,
+);
 
 // ------------------------------------------------ v6s Phase 2 shortlist
 // The shortlist table has no grant and no policy, and nomination_rank() /

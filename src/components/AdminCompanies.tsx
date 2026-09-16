@@ -55,14 +55,32 @@ const fmt = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("zh-TW", { hour12: false }) : "";
 
 /**
+ * A short, stable label for nominations.client_id (v6f): same browser -> same
+ * label, so the owner can see one device nominating a dozen companies. FNV-1a
+ * over the id; the raw id never reaches the table.
+ */
+function deviceTag(cid: string | null): string {
+  if (!cid) return "";
+  let h = 0x811c9dc5;
+  for (let i = 0; i < cid.length; i++) {
+    h ^= cid.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0").slice(0, 6);
+}
+
+/**
  * 公司與提名 (spec v6 §6): companies with raw nomination counts, inline edit,
  * merge, seed CSV import (domain,display_name,aliases separated by |), export.
  * `name:` companies (nominated without a website, v6n) carry a 待確認官網
  * badge and can be filtered; attach them to a real domain with 合併.
  *
  * v6s adds 第二階段名單: the ranking that decides who reaches Phase 2 voting.
- * Companies are ranked by DISTINCT nominator emails (so five nominations from
- * one person still count once), ties broken on the earliest nomination. Until
+ * Companies are ranked by DISTINCT nominators — the email if the row has one
+ * (older rows do), otherwise the browser id (v6f), otherwise the row itself —
+ * so five nominations from one person still count once; ties break on the
+ * earliest nomination. The 裝置 column shows that browser id as a short hash,
+ * which is how one device nominating many companies becomes visible. Until
  * the owner locks a list the ranking is live — the top 10 of the moment is
  * what /vote will accept.
  */
@@ -310,6 +328,8 @@ export default function AdminCompanies({
           "typed_name",
           "reason",
           "email",
+          "client_id",
+          "device",
         ],
         ...noms.map((n) => [
           n.id,
@@ -319,6 +339,8 @@ export default function AdminCompanies({
           n.typed_name,
           n.reason,
           n.email,
+          n.client_id,
+          deviceTag(n.client_id),
         ]),
       ]),
     );
@@ -574,7 +596,7 @@ export default function AdminCompanies({
         </table>
       </div>
 
-      <h3 id="admin-nominations">提名紀錄與理由（{shownNoms.length}）</h3>
+      <h3 id="admin-nominations">提名紀錄（{shownNoms.length}）</h3>
       <div className="arow">
         <label className="afield">
           <span>公司</span>
@@ -593,7 +615,7 @@ export default function AdminCompanies({
           </select>
         </label>
         <button className="abtn" type="button" onClick={exportNominationsCsv}>
-          匯出提名 CSV（含理由與 Email）
+          匯出提名 CSV（含舊制理由與 Email、裝置）
         </button>
       </div>
       <div className="tablewrap">
@@ -603,8 +625,9 @@ export default function AdminCompanies({
               <th>時間</th>
               <th>公司</th>
               <th>輸入的名稱</th>
-              <th>提名理由</th>
-              <th>Email</th>
+              <th>裝置</th>
+              <th>提名理由（舊制）</th>
+              <th>Email（舊制）</th>
             </tr>
           </thead>
           <tbody>
@@ -617,16 +640,25 @@ export default function AdminCompanies({
                 </td>
                 <td>{n.typed_name ?? ""}</td>
                 <td>
-                  {n.reason ?? <span className="note">（改版前的提名，無理由）</span>}
+                  {n.client_id ? (
+                    <code className="note" title="同一個瀏覽器的提名會有相同代碼">
+                      {deviceTag(n.client_id)}
+                    </code>
+                  ) : (
+                    <span className="note">—</span>
+                  )}
                 </td>
                 <td>
-                  {n.email ?? <span className="note">（無 Email）</span>}
+                  {n.reason ?? <span className="note">—</span>}
+                </td>
+                <td>
+                  {n.email ?? <span className="note">—</span>}
                 </td>
               </tr>
             ))}
             {shownNoms.length === 0 ? (
               <tr>
-                <td colSpan={5} className="note">
+                <td colSpan={6} className="note">
                   還沒有提名。
                 </td>
               </tr>

@@ -3511,3 +3511,251 @@ $$;
 
 
 -- END v6s
+
+-- ===========================================================================
+-- v6f — Phase 1 back to campaign memo v4.0: nominating needs nothing but a
+-- company name. The owner reverted the v6r reason requirement and the v6e
+-- email requirement: 「第一階段不用寫理由 也不用留信箱 直接提名就好」.
+--
+-- ADDITIVE ONLY. The currently deployed client still calls the 4-arg
+-- nominate_company(domain, name, reason, email) with real values, so that
+-- overload keeps validating a non-blank reason (10–50) and a non-blank email
+-- exactly as before; it now also accepts null/blank for either and stores
+-- null. A new 5-arg overload adds p_client_id, a per-browser id the new
+-- client keeps in localStorage, so 「提名的人越多排名越前面」 still means
+-- people rather than clicks when nobody leaves an email.
+--
+-- nomination_rank() therefore counts DISTINCT
+-- coalesce(email, client_id, row id) instead of DISTINCT email; `noms` (the
+-- raw row count) stays admin-only and unchanged.
+-- BEGIN v6f
+-- Apply statement by statement:  node scripts/apply-sql.mjs v6f
+-- Idempotent: safe to run twice.
+-- ===========================================================================
+
+alter table public.nominations add column if not exists client_id text;
+
+create index if not exists nominations_client_idx
+  on public.nominations (client_id, created_at);
+
+-- The full nomination path, now with an optional per-browser id. Identical to
+-- v6n except that reason and email are optional (null/blank -> stored null,
+-- checks skipped) and client_id is recorded when given.
+create or replace function public.nominate_company(
+  p_domain text,
+  p_display_name text,
+  p_reason text,
+  p_email text,
+  p_client_id text
+)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_phase text := public.effective_phase();
+  v_by_name boolean := btrim(coalesce(p_domain, '')) = '';
+  v_domain text;
+  v_name text := left(regexp_replace(btrim(coalesce(p_display_name, '')), '\s+', ' ', 'g'), 60);
+  v_reason text := nullif(btrim(regexp_replace(coalesce(p_reason, ''), '\s+', ' ', 'g')), '');
+  v_email text := nullif(lower(btrim(coalesce(p_email, ''))), '');
+  v_client text := nullif(left(btrim(coalesce(p_client_id, '')), 64), '');
+  v_c public.companies;
+  v_hops int := 0;
+  v_limited boolean := false;
+begin
+  if v_phase = 'pre' then
+    raise exception '提名尚未開放。';
+  end if;
+  if v_phase is distinct from 'nominate' then
+    raise exception '提名期間已結束。';
+  end if;
+  -- v6f: a reason and an email are optional. A caller that still sends them
+  -- (the deployed client) is held to exactly the old rules.
+  if v_reason is not null and char_length(v_reason) not between 10 and 50 then
+    raise exception '提名理由請寫 10 到 50 字。';
+  end if;
+  if v_email is not null and v_email !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請填寫正確的 Email。';
+  end if;
+  if v_by_name then
+    v_domain := public.company_name_key(p_display_name);
+    if v_domain is null then
+      raise exception '請填寫公司名稱。';
+    end if;
+    v_name := btrim(regexp_replace(coalesce(p_display_name, ''), '\s+', ' ', 'g'));
+  else
+    v_domain := public.normalize_domain(p_domain);
+    if not public.valid_domain(v_domain) then
+      raise exception '請輸入正確的官方網站，例如 https://example.com';
+    end if;
+  end if;
+
+  select * into v_c from public.companies c where c.domain = v_domain;
+  while v_c.merged_into is not null and v_hops < 5 loop
+    select * into v_c from public.companies c where c.domain = v_c.merged_into;
+    v_hops := v_hops + 1;
+  end loop;
+
+  if v_c.domain is null and v_name = '' then
+    raise exception '請輸入公司名稱。';
+  end if;
+
+  if v_uid is not null and (
+    select count(*) from public.nominations n
+    where n.session_id = v_uid and n.created_at > now() - interval '1 hour'
+  ) >= 20 then
+    v_limited := true;
+  end if;
+  if v_client is not null and (
+    select count(*) from public.nominations n
+    where n.client_id = v_client and n.created_at > now() - interval '1 hour'
+  ) >= 40 then
+    v_limited := true;
+  end if;
+  if v_c.domain is not null and (
+    select count(*) from public.nominations n
+    where n.domain = v_c.domain and n.created_at > now() - interval '1 hour'
+  ) >= 200 then
+    v_limited := true;
+  end if;
+
+  if v_limited then
+    return json_build_object(
+      'domain', coalesce(v_c.domain, v_domain),
+      'display_name', coalesce(v_c.display_name, v_name),
+      'aliases', to_json(coalesce(v_c.aliases, '{}'::text[])),
+      'ok', true
+    );
+  end if;
+
+  if v_c.domain is null then
+    insert into public.companies (domain, display_name, status)
+    values (v_domain, v_name, 'pending')
+    on conflict (domain) do nothing;
+    select * into v_c from public.companies c where c.domain = v_domain;
+  end if;
+
+  insert into public.nominations (domain, session_id, typed_name, reason, email, client_id)
+  values (v_c.domain, v_uid, nullif(v_name, ''), v_reason, v_email, v_client);
+
+  return json_build_object(
+    'domain', v_c.domain,
+    'display_name', v_c.display_name,
+    'aliases', to_json(v_c.aliases),
+    'ok', true
+  );
+end;
+$$;
+
+-- The 4-arg overload the deployed client calls is now a thin wrapper, so the
+-- two versions can never drift apart.
+create or replace function public.nominate_company(
+  p_domain text,
+  p_display_name text,
+  p_reason text,
+  p_email text
+)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+begin
+  return public.nominate_company(p_domain, p_display_name, p_reason, p_email, null::text);
+end;
+$$;
+
+-- v6f ranking: one nominator = one distinct email, else one distinct browser
+-- (client_id), else one row. Keeps 「提名的人越多排名越前面」 honest without an
+-- email, while a single browser nominating the same company ten times counts
+-- once. `noms` stays the raw row count, for /admin only.
+create or replace function public.nomination_rank()
+returns table (
+  domain text,
+  display_name text,
+  voters int,
+  noms int,
+  first_at timestamptz,
+  rank int
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with n as (
+    select nm.domain,
+           count(distinct coalesce(
+             nullif(lower(btrim(nm.email)), ''),
+             'cid:' || nullif(btrim(nm.client_id), ''),
+             'row:' || nm.id::text
+           ))::int as voters,
+           count(*)::int as noms,
+           min(nm.created_at) as first_at
+    from public.nominations nm
+    group by nm.domain
+  )
+  select c.domain, c.display_name, n.voters, n.noms, n.first_at,
+         (row_number() over (
+            order by n.voters desc, n.first_at asc nulls last, c.domain
+          ))::int
+  from n
+  join public.companies c on c.domain = n.domain
+  where c.status <> 'hidden';
+$$;
+
+-- Admin: nominations with the (now legacy) reason and email, plus the browser
+-- id, so the owner can see one device nominating many companies. Dropped and
+-- recreated because CREATE OR REPLACE cannot append a RETURNS TABLE column.
+drop function if exists public.admin_nominations(text);
+
+create function public.admin_nominations(p_domain text default null)
+returns table (
+  id bigint,
+  domain text,
+  display_name text,
+  reason text,
+  typed_name text,
+  email text,
+  client_id text,
+  created_at timestamptz
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  return query
+    select nm.id, nm.domain, c.display_name, nm.reason, nm.typed_name,
+           nm.email, nm.client_id, nm.created_at
+    from public.nominations nm
+    left join public.companies c on c.domain = nm.domain
+    where p_domain is null or nm.domain = p_domain
+    order by nm.created_at desc, nm.id desc;
+end;
+$$;
+
+revoke all on function public.nominate_company(text, text, text, text) from public, anon, authenticated;
+
+revoke all on function public.nominate_company(text, text, text, text, text) from public, anon, authenticated;
+
+revoke all on function public.nomination_rank() from public, anon, authenticated;
+
+revoke all on function public.admin_nominations(text) from public, anon, authenticated;
+
+grant execute on function public.nominate_company(text, text, text, text) to anon, authenticated;
+
+grant execute on function public.nominate_company(text, text, text, text, text) to anon, authenticated;
+
+grant execute on function public.admin_nominations(text) to authenticated;
+
+-- END v6f

@@ -1,9 +1,9 @@
 import {
   ArrowRight,
   CalendarDays,
+  CircleCheckBig,
   Info,
   Megaphone,
-  PenLine,
   Search,
   SquareCheckBig,
   type LucideIcon,
@@ -23,16 +23,16 @@ const STEPS: { icon: LucideIcon; h: string; p: string }[] = [
     p: "我們會顯示公司名稱與官方網站。",
   },
   {
-    icon: PenLine,
-    h: "寫一句提名理由",
+    icon: CircleCheckBig,
+    h: "完成提名",
     p: "同一家公司可以被很多人提名，提名的人越多排名越前面。",
   },
 ];
 
 const FAQ: { q: string; a: string }[] = [
   {
-    q: "需要註冊嗎？",
-    a: "不需要註冊。輸入公司名稱、寫一句理由並留下 Email 就完成提名，Email 不會公開。",
+    q: "需要註冊或留 Email 嗎？",
+    a: "不需要。輸入公司名稱、確認後就完成提名。",
   },
   {
     q: "找不到我要提名的公司怎麼辦？",
@@ -74,7 +74,7 @@ export default function HomePhase1({ stats }: { stats: Stats }) {
                 最值得作為<span className="hl">日本市場</span>發展案例？
               </h1>
               <p className="stand">
-                輸入公司名稱、寫一句理由就能提名，不用註冊。
+                輸入公司名稱就能提名，不用註冊，也不用留 Email。
               </p>
               <div className="hero__cta">
                 <NominateCta stats={stats}>

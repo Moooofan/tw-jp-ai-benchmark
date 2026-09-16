@@ -8,10 +8,12 @@ up a custom SMTP provider, and Supabase's built-in mailer only allows a
 couple of emails per hour for the whole project — public email OTP is not
 viable at that volume. So:
 
-- **Participants** (nominate / 附議 / 存疑 / final vote) use an **anonymous
-  Supabase session** (`supabase.auth.signInAnonymously()`, called once per
-  browser) plus a plain Email field that is stored, never verified. Email is
-  only the de-duplication key (`participants.email_key`); see §3 and §4.
+- **Participants** voting in Phase 2 (附議 / 存疑 / final vote) use an
+  **anonymous Supabase session** (`supabase.auth.signInAnonymously()`, called
+  once per browser) plus a plain Email field that is stored, never verified.
+  Email is only the de-duplication key (`participants.email_key`); see §3
+  and §4. **Phase 1 nomination asks for no email at all** since v6f — it
+  de-duplicates on a per-browser id in `localStorage` instead.
 - **`/admin`** still uses real **email OTP** — low volume, one admin
   signing in occasionally, well inside the mailer's rate limit. Nothing
   about the admin login changed; see §4.
@@ -65,12 +67,46 @@ It asserts that anonymous callers can read `posts_public`, `finalists_public`,
 cannot touch `posts`, `finalists`, `votes`, `admins`, `reports`, `final_votes`,
 `participants`, or any write RPC.
 
+### What v6f changed — Phase 1 asks for nothing but a name
+
+The owner reverted Phase 1 to campaign memo v4.0: 「第一階段不用寫理由 也不用留
+信箱 直接提名就好」. `/nominate` is now company name → confirm (optional
+官方網站) → done. The v6r reason requirement and the v6e email requirement are
+gone from the UI.
+
+```bash
+node scripts/apply-sql.mjs v6f   # idempotent, safe to run twice
+```
+
+The block is **additive**, so the previously deployed client (which sends a
+real reason and email to the 4-arg RPC) keeps working against it:
+
+- `nominate_company(domain, name, reason, email)` now accepts null/blank for
+  reason and email and stores null. A **non-blank** reason is still held to
+  10–50 characters and a non-blank email still has to be a valid address, so
+  nothing the old client sends behaves differently.
+- `nominate_company(domain, name, reason, email, client_id)` is new:
+  `client_id` is a per-browser UUID the client keeps in `localStorage`
+  (`benchmark:cid`) and stores in `nominations.client_id`.
+- `nomination_rank()` counts DISTINCT `coalesce(email, client_id, row id)`, so
+  「提名的人越多排名越前面」 still means people: one browser nominating the same
+  company ten times counts once, and two browsers count twice.
+- `/admin` → 提名紀錄 keeps the reason and Email columns for older rows,
+  labelled （舊制）, and adds a 裝置 column — a short hash of `client_id`, which
+  is how one browser nominating a dozen companies becomes visible. The CSV
+  export carries every column, including the raw `client_id`.
+
+**Deploy order: the SQL block first, the client second.** The reverse would
+break live nominations, because the old client's reason and email would land
+on a function that no longer accepts them.
+
 ### What v6s added — the Phase 2 shortlist
 
 Only the **top 10 companies advance to Phase 2 voting**. Rank is the number of
-**distinct nominator emails** (`nomination_rank().voters`), so five nominations
-from one person count once; ties break on the earliest nomination. The raw row
-count stays visible in `/admin` as 提名次數.
+**distinct nominators** (`nomination_rank().voters`) — the email when the row
+has one, otherwise the browser id added in v6f, otherwise the row itself — so
+five nominations from one person count once; ties break on the earliest
+nomination. The raw row count stays visible in `/admin` as 提名次數.
 
 ```bash
 node scripts/apply-sql.mjs v6s   # idempotent, safe to run twice

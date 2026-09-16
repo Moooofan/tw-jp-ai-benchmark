@@ -171,9 +171,10 @@ export type AdminCompany = {
 };
 
 /**
- * admin_nominations() row (v6r, +email in v6e). reason is null for pre-v6r
- * nominations; email is null for nominations made before v6e or before the
- * frontend required it. Never shown outside /admin.
+ * admin_nominations() row (v6r, +email in v6e, +client_id in v6f). Phase 1 no
+ * longer asks for either, so `reason` and `email` are legacy columns that only
+ * older rows fill in; `client_id` is the per-browser id the current client
+ * sends. Never shown outside /admin.
  */
 export type AdminNomination = {
   id: number;
@@ -182,6 +183,7 @@ export type AdminNomination = {
   reason: string | null;
   typed_name: string | null;
   email: string | null;
+  client_id: string | null;
   created_at: string | null;
 };
 
@@ -312,7 +314,8 @@ export type AdminVoteStat = {
 
 /**
  * admin_shortlist() row (v6s). `rank` is the live ranking by DISTINCT
- * nominator emails (`voters`), tie-broken on `first_at`; `noms` is the raw
+ * nominators — email, else browser id, else the row (v6f) — counted in
+ * `voters` and tie-broken on `first_at`; `noms` is the raw
  * row count and is admin-only. `shortlist_rank` is set only for companies
  * actually in public.shortlist, and `locked` carries the same value on every
  * row: true once a shortlist has been locked, false while Phase 2 still

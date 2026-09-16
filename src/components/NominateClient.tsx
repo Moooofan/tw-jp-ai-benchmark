@@ -6,8 +6,6 @@ import {
   ArrowRight,
   ExternalLink,
   Globe,
-  Mail,
-  PenLine,
   Plus,
   RotateCcw,
   Search,
@@ -18,7 +16,6 @@ import type { CompanyMatch, ExternalCompany, Stats } from "@/lib/types";
 import Favicon from "./Favicon";
 import Icon from "./Icon";
 import { JUST_NOMINATED_KEY } from "./NominationBoard";
-import { readSavedEmail, writeSavedEmail } from "./ParticipantEmail";
 import ShareRow from "./ShareRow";
 import SiteChrome, { type ChromeStory } from "./SiteChrome";
 
@@ -28,13 +25,29 @@ import SiteChrome, { type ChromeStory } from "./SiteChrome";
  * slow. See the rate-limit note in src/app/api/company-lookup/route.ts.
  */
 const SEARCH_MS = 400;
-const REASON_MIN = 10;
-const REASON_MAX = 50;
-const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-const EMAIL_ERR = "請填寫正確的 Email。";
 
-/** Same normalisation as nominate_company(): collapse whitespace, trim. */
-const cleanReason = (s: string) => s.replace(/\s+/g, " ").trim();
+/**
+ * A per-browser id (v6f). It is the only thing that makes 「提名的人越多排名越
+ * 前面」 mean people rather than clicks now that Phase 1 asks for no email:
+ * nomination_rank() counts distinct client_ids. Not an identity and never
+ * shown in public — /admin sees a short hash of it, nothing else.
+ */
+const CID_KEY = "benchmark:cid";
+
+function clientId(): string | null {
+  try {
+    const got = window.localStorage.getItem(CID_KEY);
+    if (got) return got;
+    const made =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `r-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+    window.localStorage.setItem(CID_KEY, made);
+    return made;
+  } catch {
+    return null; // private mode / storage blocked: the nomination still counts
+  }
+}
 
 /** Same normalisation as the name key: collapse whitespace, trim. */
 const cleanName = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -58,7 +71,7 @@ type Step =
       typed: boolean;
       external?: boolean;
     }
-  | { kind: "done"; company: CompanyMatch; reason: string };
+  | { kind: "done"; company: CompanyMatch };
 
 function CompanyCard({ c }: { c: CompanyMatch }) {
   const pending = isNameKey(c.domain);
@@ -86,11 +99,11 @@ function CompanyCard({ c }: { c: CompanyMatch }) {
 }
 
 /**
- * `/nominate` (spec v6 §4): company name + email -> pick a match (or nominate
- * the typed name directly, website optional, v6n) -> confirm + 10–50
- * character reason -> done. No cap. The reason requirement (v6r) overrides the
- * v6 spec's "no reason"; the email field (v6e) is required but never verified
- * and never made public.
+ * `/nominate` (spec v6 §4, back to campaign memo v4.0 in v6f): type a company
+ * name -> pick a match (ours, a public-data suggestion, or the typed name
+ * itself, website optional, v6n) -> confirm -> done. No reason, no email, no
+ * registration; the v6r reason and the v6e email requirements are both gone.
+ * The saved-email localStorage key is left alone — Phase 2 still uses it.
  */
 export default function NominateClient({
   stats,
@@ -108,14 +121,7 @@ export default function NominateClient({
   const [searched, setSearched] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const [reason, setReason] = useState("");
-  const [email, setEmail] = useState("");
-  const [emailErr, setEmailErr] = useState("");
   const nameInput = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setEmail(readSavedEmail());
-  }, []);
 
   useEffect(() => {
     const q = name.trim();
@@ -194,12 +200,6 @@ export default function NominateClient({
   }
 
   async function nominate(c: CompanyMatch, typedStep: boolean) {
-    const r = cleanReason(reason);
-    const em = email.trim();
-    if (!EMAIL_RE.test(em)) {
-      setEmailErr(EMAIL_ERR);
-      return;
-    }
     setErr("");
     setBusy(true);
     // A `name:` company (typed now, or picked from the list) is sent with no
@@ -223,15 +223,15 @@ export default function NominateClient({
     const { data, error } = await supabase.rpc("nominate_company", {
       p_domain: pDomain,
       p_display_name: pName,
-      p_reason: r,
-      p_email: em,
+      p_reason: null,
+      p_email: null,
+      p_client_id: clientId(),
     });
     setBusy(false);
     if (error) {
       setErr(errText(error));
       return;
     }
-    writeSavedEmail(em);
     try {
       window.sessionStorage.setItem(JUST_NOMINATED_KEY, "1");
     } catch {
@@ -240,7 +240,6 @@ export default function NominateClient({
     setStep({
       kind: "done",
       company: (data as CompanyMatch | null) ?? c,
-      reason: r,
     });
   }
 
@@ -251,9 +250,7 @@ export default function NominateClient({
     setMatches([]);
     setExternals([]);
     setSearched("");
-    setReason("");
     setErr("");
-    setEmailErr("");
     setTimeout(() => nameInput.current?.focus(), 0);
   }
 
@@ -286,7 +283,6 @@ export default function NominateClient({
         </span>
         <h3>提名完成！</h3>
         <CompanyCard c={c} />
-        <blockquote className="reasonquote">{step.reason}</blockquote>
         <p>這家公司已被提名，謝謝你。</p>
         <div className="after">
           <button type="button" className="btn btn--red" onClick={restart}>
@@ -298,15 +294,12 @@ export default function NominateClient({
           </Link>
         </div>
         <ShareRow
-          text={`我提名了 ${c.display_name}：${step.reason}　過去五年，你認為哪些台灣新創最值得作為日本市場發展案例？`}
+          text={`我提名了 ${c.display_name}：過去五年，你認為哪些台灣新創最值得作為日本市場發展案例？`}
         />
       </div>
     );
   } else if (step.kind === "confirm") {
     const c = step.company;
-    const len = cleanReason(reason).length;
-    const reasonOk = len >= REASON_MIN && len <= REASON_MAX;
-    const emailOk = EMAIL_RE.test(email.trim());
     body = (
       <div className="flow">
         <h3>{step.typed ? "提名這家公司" : "是這家公司嗎？"}</h3>
@@ -344,62 +337,12 @@ export default function NominateClient({
             </div>
           </>
         ) : null}
-        <div className="f">
-          <label htmlFor="reason">
-            <Icon icon={PenLine} />
-            為什麼提名這家公司？
-          </label>
-          <textarea
-            id="reason"
-            className="reasonbox"
-            rows={3}
-            value={reason}
-            maxLength={120}
-            placeholder="一句話就好，例如它在日本做了什麼（10–50 字）"
-            aria-describedby="reason-count"
-            onChange={(e) => {
-              setReason(e.target.value);
-              setErr("");
-            }}
-          />
-          <small
-            id="reason-count"
-            className={`reasoncount${len > REASON_MAX ? " is-over" : ""}`}
-            aria-live="polite"
-          >
-            {len} / {REASON_MAX}
-          </small>
-        </div>
-        <div className="f">
-          <label htmlFor="email2">
-            <Icon icon={Mail} />
-            你的 Email
-          </label>
-          <input
-            id="email2"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            placeholder="name@company.com"
-            value={email}
-            onChange={(e) => {
-              setEmail(e.target.value);
-              setEmailErr("");
-              setErr("");
-            }}
-            onBlur={() => {
-              if (!EMAIL_RE.test(email.trim())) setEmailErr(EMAIL_ERR);
-            }}
-          />
-          <p className="fine">只用來聯繫與避免重複，不會公開。</p>
-          {emailErr ? <p className="err">{emailErr}</p> : null}
-        </div>
         {err ? <p className="err">{err}</p> : null}
         <div className="after">
           <button
             type="button"
             className="btn btn--red"
-            disabled={busy || !reasonOk || !emailOk}
+            disabled={busy}
             onClick={() => void nominate(c, step.typed)}
           >
             {busy ? "提名中…" : "送出提名"}
@@ -441,31 +384,6 @@ export default function NominateClient({
               setErr("");
             }}
           />
-        </div>
-
-        <div className="f">
-          <label htmlFor="email">
-            <Icon icon={Mail} />
-            你的 Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            placeholder="name@company.com"
-            value={email}
-            onChange={(e) => {
-              setEmail(e.target.value);
-              setEmailErr("");
-              setErr("");
-            }}
-            onBlur={() => {
-              if (!EMAIL_RE.test(email.trim())) setEmailErr(EMAIL_ERR);
-            }}
-          />
-          <p className="fine">只用來聯繫與避免重複，不會公開。</p>
-          {emailErr ? <p className="err">{emailErr}</p> : null}
         </div>
 
         {matches.length > 0 || extras.length > 0 || offerTyped ? (
@@ -562,7 +480,7 @@ export default function NominateClient({
         <div className="wrap">
           <span className="chip">Nominate</span>
           <h1>提名台灣新創</h1>
-          <p>輸入公司名稱，確認公司，再寫一句為什麼。</p>
+          <p>輸入公司名稱，確認後就完成。</p>
         </div>
       </div>
       <div className="wrap">
