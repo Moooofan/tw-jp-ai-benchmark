@@ -27,11 +27,10 @@ import SiteChrome, { type ChromeStory } from "./SiteChrome";
 const SEARCH_MS = 400;
 
 /**
- * A per-browser id (v6f). It is the only thing that makes 「提名的人越多排名越
- * 前面」 mean people rather than clicks now that Phase 1 asks for no email:
- * nomination_rank() counts distinct client_ids. Not an identity and never
- * shown in public — /admin sees a short hash of it, nothing else.
- */
+ * A per-browser id (v6f). Sent with every nomination so /admin can spot one
+ * browser nominating many companies; ranking itself counts raw nominations
+ * (owner's rule, v6g).
+*/
 const CID_KEY = "benchmark:cid";
 
 function clientId(): string | null {
@@ -489,7 +488,7 @@ export default function NominateClient({
           <ul className="steps-note">
             <li>中文、英文、品牌名都可以，找不到就選「直接提名」。</li>
             <li>官方網站是選填，知道的話填一下，能幫我們更快辨識。</li>
-            <li>同一家公司可以被很多人提名，提名的人越多排名越前面。</li>
+            <li>同一家公司可以被很多人提名，被提名越多次，排名越前面。</li>
           </ul>
         </div>
       </div>

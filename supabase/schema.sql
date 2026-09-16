@@ -3091,7 +3091,7 @@ as $$
   )
   select c.domain, c.display_name, n.voters, n.noms, n.first_at,
          (row_number() over (
-            order by n.voters desc, n.first_at asc nulls last, c.domain
+            order by n.noms desc, n.voters desc, n.first_at asc nulls last, c.domain
           ))::int
   from n
   join public.companies c on c.domain = n.domain
@@ -3759,3 +3759,41 @@ grant execute on function public.nominate_company(text, text, text, text, text) 
 grant execute on function public.admin_nominations(text) to authenticated;
 
 -- END v6f
+
+-- BEGIN v6g
+-- Ranking follows raw nomination count (owner's rule: 被提名越多次，排名越前面).
+create or replace function public.nomination_rank()
+returns table (
+  domain text,
+  display_name text,
+  voters int,
+  noms int,
+  first_at timestamptz,
+  rank int
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with n as (
+    select nm.domain,
+           count(distinct coalesce(
+             nullif(lower(btrim(nm.email)), ''),
+             'sid:' || nm.session_id::text,
+             'row:' || nm.id::text
+           ))::int as voters,
+           count(*)::int as noms,
+           min(nm.created_at) as first_at
+    from public.nominations nm
+    group by nm.domain
+  )
+  select c.domain, c.display_name, n.voters, n.noms, n.first_at,
+         (row_number() over (
+            order by n.noms desc, n.voters desc, n.first_at asc nulls last, c.domain
+          ))::int
+  from n
+  join public.companies c on c.domain = n.domain
+  where c.status <> 'hidden';
+$$;
+-- END v6g
