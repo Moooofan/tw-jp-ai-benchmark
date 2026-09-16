@@ -203,7 +203,7 @@ export default function AdminVote({
 
       <h3 className="asub">公司票數（{stats.length}）</h3>
       <p className="note">
-        票數 = 有效選票的選擇數 + 讚倒讚加成（淨數 ÷ 10，捨去小數）+ 手動調整。
+        票數 = 有效選票的選擇數 + 推噓加成（淨數 ÷ 10，捨去小數）+ 手動調整。
       </p>
       <div className="tablewrap">
         <table className="at">
@@ -318,7 +318,7 @@ export default function AdminVote({
                       <li key={p.pick_id} className={p.hidden ? "is-hidden" : undefined}>
                         <b>{p.display_name}</b>：{p.reason}{" "}
                         <small>
-                          讚 {p.likes} · 倒讚 {p.dislikes}
+                          推 {p.likes} · 噓 {p.dislikes}
                         </small>{" "}
                         <label className="radio">
                           <input

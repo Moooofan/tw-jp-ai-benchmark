@@ -9,7 +9,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { hhmm, monthDay } from "@/lib/format";
-import type { CloudWord } from "@/lib/wordcloud";
 import type { Stats, VoteBoard } from "@/lib/types";
 import BackgroundBand from "./BackgroundBand";
 import Band from "./Band";
@@ -22,7 +21,6 @@ import {
 import Icon from "./Icon";
 import { ReactionProvider } from "./Reactions";
 import SiteChrome, { DISCLAIMER } from "./SiteChrome";
-import WordCloud from "./WordCloud";
 
 const RULES: { icon: LucideIcon; h: string; p: string }[] = [
   {
@@ -38,8 +36,8 @@ const RULES: { icon: LucideIcon; h: string; p: string }[] = [
   },
   {
     icon: ThumbsUp,
-    h: "讚與倒讚會影響票數",
-    p: "每累積淨 10 個讚，該公司 +1 票；淨 10 個倒讚，−1 票",
+    h: "推與噓會影響票數",
+    p: "每累積淨 10 個推，該公司 +1 票；淨 10 個噓，−1 票",
   },
 ];
 
@@ -49,7 +47,7 @@ const FAQ: { q: string; a: string }[] = [
     a: "每個 Email 每天一張票，台北時間午夜重置。",
   },
   { q: "一張票可以選幾家？", a: "最多三家，每家要寫理由。" },
-  { q: "讚和倒讚有什麼用？", a: "淨 10 個讚 = 1 票；淨 10 個倒讚 = −1 票。" },
+  { q: "推和噓有什麼用？", a: "淨 10 個推 = 1 票；淨 10 個噓 = −1 票。" },
   {
     q: "可以改票嗎？",
     a: "當天送出後不能修改，明天可以再投一張。",
@@ -73,11 +71,9 @@ const pad2 = (n: number) => String(n).padStart(2, "0");
 export default function HomeVote({
   stats,
   board,
-  cloud,
 }: {
   stats: Stats;
   board: VoteBoard;
-  cloud: CloudWord[];
 }) {
   const closed = stats.phase === "closed";
   const label = stats.results_label.trim();
@@ -144,7 +140,7 @@ export default function HomeVote({
             <Band id="leaderboard" chip="01 · Leaderboard" title="排行榜">
               <Leaderboard />
               <p className="note">
-                排行依票數即時計算；讚與倒讚每累積淨 10 個，影響該公司 1 票。
+                排行依票數即時計算；推與噓每累積淨 10 個，影響該公司 1 票。
               </p>
             </Band>
 
@@ -152,19 +148,7 @@ export default function HomeVote({
               <ReasonTabs />
             </Band>
 
-            <Band
-              id="perception"
-              chip="03 · Perception"
-              title="大家怎麼看日本市場"
-            >
-              <WordCloud
-                words={cloud}
-                label="投票理由關鍵字"
-                empty="投票開始後，這裡會長出大家對日本市場的看法。"
-              />
-            </Band>
-
-            <Band id="rules" chip="04 · Rules" title="投票規則">
+            <Band id="rules" chip="03 · Rules" title="投票規則">
               <div className="grid g4">
                 {RULES.map((r, i) => (
                   <article className="card" key={r.h}>
@@ -196,7 +180,7 @@ export default function HomeVote({
               </div>
             </section>
 
-            <Band id="faq" chip="06 · FAQ" title="常見問題">
+            <Band id="faq" chip="05 · FAQ" title="常見問題">
               <div className="acc">
                 {FAQ.map((f) => (
                   <details key={f.q}>

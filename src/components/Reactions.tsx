@@ -17,7 +17,7 @@ import { useParticipantEmail } from "./ParticipantEmail";
 
 const PROMPT = {
   title: "留下你的 Email",
-  body: "按讚或倒讚前，請留下 Email。同一個 Email 對同一則理由只能表態一次。",
+  body: "推或噓之前，請留下 Email。同一個 Email 對同一則理由只能表態一次。",
 };
 
 type Stance = 0 | 1 | -1;
@@ -40,7 +40,7 @@ const ReactionCtx = createContext<Ctx | null>(null);
 const ownKey = (domain: string, reason: string) => `${domain}|${reason}`;
 
 /**
- * 讚 / 倒讚 state for every reason card on a page (spec v7b §1.5): the email
+ * 推 / 噓 state for every reason card on a page (spec v7b §1.5): the email
  * (asked once, remembered), this email's stances, and its own reasons today
  * (best effort: my_vote_state has no pick ids, so domain + text are matched).
  */
@@ -130,7 +130,7 @@ export function ReactionProvider({
   );
 }
 
-/** One reason with its 讚 / 倒讚 buttons (home and company pages). */
+/** One reason with its 推 / 噓 buttons (home and company pages). */
 export function ReasonCard({
   pickId,
   domain,
@@ -214,7 +214,7 @@ export function ReasonCard({
           onClick={() => click(1)}
         >
           <ThumbsUp size={16} strokeWidth={1.75} aria-hidden="true" />
-          讚<span className="rx__n">{counts.likes}</span>
+          推<span className="rx__n">{counts.likes}</span>
         </button>
         <button
           type="button"
@@ -225,7 +225,7 @@ export function ReasonCard({
           onClick={() => click(-1)}
         >
           <ThumbsDown size={16} strokeWidth={1.75} aria-hidden="true" />
-          倒讚<span className="rx__n">{counts.dislikes}</span>
+          噓<span className="rx__n">{counts.dislikes}</span>
         </button>
       </div>
       {err ? <p className="err">{err}</p> : null}
