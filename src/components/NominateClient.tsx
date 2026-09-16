@@ -506,7 +506,9 @@ export default function NominateClient({
                     {e.description ? <small>{clip(e.description)}</small> : null}
                   </span>
                   <span className="dom">
-                    <span className="srcchip">公開資料</span>
+                    <span className="srcchip">
+                      {e.source === "web" ? "網站驗證" : "公開資料"}
+                    </span>
                     {e.domain}
                   </span>
                 </button>

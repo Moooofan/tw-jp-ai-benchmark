@@ -11,6 +11,12 @@ import type { ExternalCompany } from "@/lib/types";
  * their official websites so the nominator can pick one and keep our
  * domain-as-identity model, instead of falling back to a `name:` key.
  *
+ * v6m adds a SECOND source: when Wikidata gives us fewer than three hits and
+ * the query is ASCII-ish, we guess a short list of likely official domains
+ * from the name and *verify* each by fetching it — a domain is only offered
+ * when the live page names the company in its <title> / og:site_name /
+ * og:title. See the block above `GET` for the rules and the guard rails.
+ *
  * DATA SOURCE / LICENCE: Wikidata (www.wikidata.org), whose structured data
  * is released under CC0 1.0 (public domain) — no attribution is required and
  * we may reuse it freely. We only read two public, key-free endpoints:
@@ -229,6 +235,276 @@ async function lookup(q: string): Promise<ExternalCompany[]> {
     }));
 }
 
+/* ------------------------------------------------------------------ *
+ * Pass 2 — domain guessing, verified by actually fetching the site.
+ *
+ * WHY: Wikidata simply has no item for most small Taiwanese startups
+ * (FunNow, 91APP, Omnichat, awoo all return nothing), which are exactly
+ * the companies this campaign is about. Their official site, however, is
+ * almost always a predictable domain built from the name. So we guess a
+ * short list of domains, fetch each one, and only keep a domain when the
+ * page it actually serves names the company in its <title> / og:site_name
+ * / og:title. A guess we could not confirm is never shown.
+ *
+ * SAFETY: same guard rails as the Wikidata pass — no key, no storage, a
+ * hard 3 s per-request timeout, at most 64 KB of any response is read,
+ * bounded concurrency, and every failure degrades to "no suggestion".
+ * ------------------------------------------------------------------ */
+
+/** Letters/digits/spaces/hyphens only — a CJK query cannot name a domain. */
+const ASCII_Q = /^[A-Za-z0-9][A-Za-z0-9 -]{0,28}[A-Za-z0-9]$/;
+/** Below this many Wikidata hits we bother guessing domains. */
+const WEB_MIN_WIKIDATA = 3;
+const WEB_MAX_CANDIDATES = 8;
+const WEB_CONCURRENCY = 4;
+const WEB_TIMEOUT_MS = 3_000;
+/**
+ * The whole guessing pass, not just one socket, is bounded: a query like
+ * "kkday" or "gogoro" has several candidates that simply hang, and two waves
+ * of those would add 6 s to a suggestion box. Measured worst case is now
+ * Wikidata (~0.8 s) + this budget.
+ */
+const WEB_PASS_MS = 3_000;
+const WEB_MAX_BYTES = 64 * 1024;
+/** Sites hide behind a WAF for unknown agents; ask as an ordinary browser. */
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+
+/** `FunNow` → `funnow`; `Pink Oi` → `pinkoi` (+ the `pink-oi` variant). */
+function slugsOf(q: string): { slug: string; hyphen: string | null } {
+  const lower = q.toLowerCase().trim();
+  return {
+    slug: lower.replace(/[\s_]+/g, ""),
+    hyphen: /[\s_]/.test(lower) ? lower.replace(/[\s_]+/g, "-") : null,
+  };
+}
+
+/**
+ * The guess list, in the documented order. When the query has a space we
+ * interleave the hyphenated variant so it is still reached inside the
+ * `WEB_MAX_CANDIDATES` budget instead of being crowded out.
+ */
+function candidates(slug: string, hyphen: string | null): string[] {
+  // Measured on the real companies this campaign cares about: `get<slug>.com`
+  // and `<slug>app.com` never produced a correct hit (getomnichat.com and
+  // awooapp.com are unrelated products) and were the slowest candidates, while
+  // `<slug>.ai` is the actual home of awoo and Omnichat. Trading those two away
+  // keeps `.ai` inside the budget and the cold lookup under 4 s.
+  const shape = (s: string) => [
+    `${s}.com`,
+    `${s}.com.tw`,
+    `${s}.tw`,
+    `${s}.io`,
+    `${s}.co`,
+    `my${s}.com`,
+    `${s}.ai`,
+  ];
+  const a = shape(slug);
+  const b = hyphen ? shape(hyphen) : [];
+  const out: string[] = [];
+  for (let i = 0; i < a.length; i++) {
+    out.push(a[i]);
+    if (b[i]) out.push(b[i]);
+  }
+  return [...new Set(out)]
+    .filter((d) => /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)+$/.test(d))
+    .slice(0, WEB_MAX_CANDIDATES);
+}
+
+/**
+ * Per-request timeout AND the whole-pass deadline, whichever fires first.
+ * `AbortSignal.any` needs Node >= 20.3; on anything older we would rather
+ * fall back to the per-request timeout than have every probe throw.
+ */
+const bothSignals = (a: AbortSignal, b: AbortSignal): AbortSignal =>
+  typeof AbortSignal.any === "function" ? AbortSignal.any([a, b]) : a;
+
+/** Read at most `WEB_MAX_BYTES` of a response, then hang up. */
+async function readHead(res: Response): Promise<string> {
+  const body = res.body;
+  if (!body) return (await res.text()).slice(0, WEB_MAX_BYTES);
+  const reader = body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let text = "";
+  let seen = 0;
+  try {
+    while (seen < WEB_MAX_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      seen += value.byteLength;
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    void reader.cancel().catch(() => {});
+  }
+  return text;
+}
+
+const decodeEntities = (s: string): string =>
+  s
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;|&apos;/gi, "'")
+    .replace(/&nbsp;/gi, " ");
+
+function metaContent(html: string, property: string): string {
+  const tags = html.match(/<meta\b[^>]*>/gi) ?? [];
+  for (const tag of tags) {
+    const key =
+      /\b(?:property|name)\s*=\s*["']?([^"'\s>]+)/i.exec(tag)?.[1] ?? "";
+    if (key.toLowerCase() !== property) continue;
+    const value = /\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(
+      tag,
+    );
+    const raw = value?.[1] ?? value?.[2] ?? value?.[3];
+    if (raw) return decodeEntities(raw).trim();
+  }
+  return "";
+}
+
+const titleOf = (html: string): string =>
+  decodeEntities(
+    /<title\b[^>]*>([\s\S]*?)<\/title>/i
+      .exec(html)?.[1]
+      ?.replace(/\s+/g, " ")
+      .trim() ?? "",
+  ).trim();
+
+const squash = (s: string): string => s.replace(/\s+/g, "").toLowerCase();
+
+/**
+ * "台北｜桃園 | FunNow - 隨訂即用" → "FunNow": the title minus everything after
+ * the first separator, except that we prefer the segment that actually names
+ * the company when the site leads with a city or a tagline.
+ */
+function cleanTitle(t: string, needle: string): string {
+  const parts = t
+    .split(/[|\-｜—]/)
+    .map((x) => x.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (parts.length === 0) return "";
+  return parts.find((x) => squash(x).includes(needle)) ?? parts[0];
+}
+
+/**
+ * A domain can resolve, answer 200 with HTML and still carry the name we
+ * searched for while belonging to nobody — "gogoro.tw – Domain For Sale" is a
+ * real measured example. Parking pages and interstitials are rejected even
+ * when the title check passes.
+ */
+const PARKED =
+  /(domain|網域|域名).{0,20}(for sale|出售|出讓|販售)|buy this domain|this domain is for sale|domain parking|parked (free )?(at|by)|checking your browser|just a moment|attention required|access denied|are you a robot/i;
+
+function parked(title: string, domain: string): boolean {
+  if (PARKED.test(title)) return true;
+  // A page whose entire name is its own address is a placeholder, not a site.
+  return squash(title) === squash(domain) || squash(title) === `www.${domain}`;
+}
+
+/**
+ * Fetch one candidate and decide whether it really is this company. A 200,
+ * an HTML content-type and the slug appearing in the page's own name are all
+ * required — that is what keeps parked pages, registrar placeholders and
+ * unrelated squatters out of the list.
+ */
+async function probe(
+  candidate: string,
+  slug: string,
+  typed: string,
+  deadline: AbortSignal,
+): Promise<ExternalCompany | null> {
+  if (deadline.aborted) return null;
+  try {
+    const res = await fetch(`https://${candidate}/`, {
+      redirect: "follow",
+      headers: {
+        "user-agent": BROWSER_UA,
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "zh-TW,zh;q=0.9,en;q=0.8",
+      },
+      signal: bothSignals(AbortSignal.timeout(WEB_TIMEOUT_MS), deadline),
+      cache: "no-store",
+    });
+    if (res.status !== 200) return null;
+    if (!/^text\/html|^application\/xhtml/i.test(res.headers.get("content-type") ?? ""))
+      return null;
+
+    const html = await readHead(res);
+    const title = titleOf(html);
+    const siteName = metaContent(html, "og:site_name");
+    const ogTitle = metaContent(html, "og:title");
+    const needle = squash(slug);
+    if (!needle) return null;
+    const named = [title, siteName, ogTitle].some((v) =>
+      squash(v).includes(needle),
+    );
+    if (!named) return null;
+    if (parked(title, candidate) || parked(ogTitle, candidate)) return null;
+
+    // The redirect target is the real home, so funnow.com → myfunnow.com
+    // is recorded as myfunnow.com.
+    const domain = normalizeDomain(res.url || `https://${candidate}/`);
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)+$/.test(domain))
+      return null;
+
+    const display_name =
+      siteName.trim() || cleanTitle(title, needle) || typed;
+    return {
+      display_name: display_name.slice(0, 80),
+      domain,
+      description: "",
+      source: "web",
+      taiwan: domain.endsWith(".tw"),
+    };
+  } catch {
+    return null; // DNS failure, TLS error, timeout, non-UTF8 junk — all "no"
+  }
+}
+
+/** Probe the candidate list with a bounded number of sockets in flight. */
+async function probeAll(
+  list: string[],
+  slug: string,
+  typed: string,
+): Promise<ExternalCompany[]> {
+  const found: (ExternalCompany | null)[] = new Array(list.length).fill(null);
+  const deadline = AbortSignal.timeout(WEB_PASS_MS);
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= list.length || deadline.aborted) return;
+      found[i] = await probe(list[i], slug, typed, deadline);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(WEB_CONCURRENCY, list.length) }, worker),
+  );
+  return found.filter((c): c is ExternalCompany => c !== null);
+}
+
+/** Wikidata first; guessed-and-verified domains only fill the gap. */
+async function suggest(q: string): Promise<ExternalCompany[]> {
+  const base = await lookup(q);
+  if (base.length >= WEB_MIN_WIKIDATA || !ASCII_Q.test(q)) return base;
+
+  try {
+    const { slug, hyphen } = slugsOf(q);
+    if (slug.length < 2) return base;
+    const web = await probeAll(candidates(slug, hyphen), slug, q);
+    const seen = new Set(base.map((c) => c.domain));
+    const extra = web.filter((c) =>
+      seen.has(c.domain) ? false : seen.add(c.domain),
+    );
+    return [...base, ...extra].slice(0, MAX_SUGGESTIONS);
+  } catch {
+    return base; // this pass is a bonus and must never break the route
+  }
+}
+
 export async function GET(req: Request) {
   const empty = NextResponse.json(
     { suggestions: [] },
@@ -257,7 +533,7 @@ export async function GET(req: Request) {
       );
     }
 
-    const data = await lookup(q);
+    const data = await suggest(q);
     cache.set(key, { at: now, data });
     if (cache.size > 500) {
       for (const [k, v] of cache) if (now - v.at > CACHE_MS) cache.delete(k);

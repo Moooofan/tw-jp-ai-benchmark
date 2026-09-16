@@ -143,15 +143,17 @@ export type CompanyMatch = {
 };
 
 /**
- * A company suggested by the external lookup (`/api/company-lookup`, v6l).
- * Public-data only: Wikidata (CC0). Nothing but `display_name` and `domain`
- * is ever sent to `nominate_company()`.
+ * A company suggested by the external lookup (`/api/company-lookup`, v6l/v6m).
+ * Two public sources, never anything private: `"wikidata"` (CC0 structured
+ * data) and `"web"` (a domain guessed from the typed name and then confirmed
+ * by fetching the site, which is how small Taiwanese startups are found).
+ * Nothing but `display_name` and `domain` is ever sent to `nominate_company()`.
  */
 export type ExternalCompany = {
   display_name: string;
   domain: string;
   description: string;
-  source: "wikidata";
+  source: "wikidata" | "web";
   taiwan: boolean;
 };
 
