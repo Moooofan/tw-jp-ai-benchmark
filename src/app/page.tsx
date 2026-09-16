@@ -1,5 +1,5 @@
 import HomePhase1 from "@/components/HomePhase1";
-import { isPhaseOne, isVotePhase, phaseOneStats, publicStats, reveal } from "@/lib/phase";
+import { isPhaseOne, isVotePhase, phaseOneStats, previewFromQuery, publicStats, reveal } from "@/lib/phase";
 import { loadReasonCorpus, loadSiteData, loadVoteBoard } from "@/lib/site-data";
 import { wordCloud } from "@/lib/wordcloud";
 
@@ -7,8 +7,16 @@ import { wordCloud } from "@/lib/wordcloud";
 // The vote-phase word cloud is cached with the page (spec v7b §1.6).
 export const revalidate = 300;
 
-export default async function Page() {
-  const { stats, posts, finalists } = await loadSiteData();
+export default async function Page({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = searchParams ? await searchParams : undefined;
+  const loaded = await loadSiteData();
+  const preview = previewFromQuery(sp);
+  const { posts, finalists } = loaded;
+  const stats = preview ? { ...loaded.stats, phase: preview } : loaded.stats;
   if (isPhaseOne(stats.phase)) {
     return <HomePhase1 stats={phaseOneStats(stats)} />;
   }

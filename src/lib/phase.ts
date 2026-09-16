@@ -98,3 +98,20 @@ export function publicStats(stats: Stats): Stats {
     contact_email: /ximu/i.test(contact_email) ? "" : contact_email,
   } as Stats;
 }
+
+/**
+ * Owner preview on production: `?preview=<phase>&key=<PREVIEW_KEY>` renders any
+ * phase for whoever holds the key. Nothing changes for ordinary visitors, and
+ * writes still obey the real phase in the database.
+ */
+export function previewFromQuery(
+  params: Record<string, string | string[] | undefined> | undefined,
+  env: Record<string, string | undefined> = process.env,
+): Phase | null {
+  const key = env.PREVIEW_KEY;
+  if (!key || !params) return null;
+  const given = Array.isArray(params.key) ? params.key[0] : params.key;
+  if (given !== key) return null;
+  const raw = Array.isArray(params.preview) ? params.preview[0] : params.preview;
+  return raw && PHASES.includes(raw as Phase) ? (raw as Phase) : null;
+}

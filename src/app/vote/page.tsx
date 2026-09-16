@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import VoteClient from "@/components/VoteClient";
 import { STORY_CHROME } from "@/components/story";
-import { isVotePhase, publicStats, reveal } from "@/lib/phase";
+import { isVotePhase, previewFromQuery, publicStats, reveal } from "@/lib/phase";
 import { loadSiteData } from "@/lib/site-data";
 
 export const dynamic = "force-dynamic";
@@ -23,13 +23,17 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function VotePage({
   searchParams,
 }: {
-  searchParams: Promise<{ pick?: string | string[] }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { stats, finalists } = await loadSiteData();
+  const sp = await searchParams;
+  const loaded = await loadSiteData();
+  const preview = previewFromQuery(sp);
+  const { finalists } = loaded;
+  const stats = preview ? { ...loaded.stats, phase: preview } : loaded.stats;
   if (isVotePhase(stats.phase)) {
     // Daily ballot (spec v7b §2). Pre / nominate keep the unchanged legacy
     // page below so the live Phase 1 output does not move.
-    const { pick } = await searchParams;
+    const pick = sp.pick;
     const { default: BallotClient } = await import("@/components/BallotClient");
     return (
       <BallotClient
