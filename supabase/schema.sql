@@ -3094,6 +3094,7 @@ as $$
     select nm.domain,
            count(distinct coalesce(
              nullif(lower(btrim(nm.email)), ''),
+             'cid:' || nullif(btrim(nm.client_id), ''),
              'sid:' || nm.session_id::text,
              'row:' || nm.id::text
            ))::int as voters,
@@ -3793,6 +3794,7 @@ as $$
     select nm.domain,
            count(distinct coalesce(
              nullif(lower(btrim(nm.email)), ''),
+             'cid:' || nullif(btrim(nm.client_id), ''),
              'sid:' || nm.session_id::text,
              'row:' || nm.id::text
            ))::int as voters,
@@ -3904,3 +3906,371 @@ begin
 end;
 $$;
 -- END v6h
+
+-- v7c — Phase 2 voting without a mandatory shortlist (SPEC-v7-phase2.md,
+-- campaign memo v4.0). Memo v4.0 never defines a shortlist for Phase 2, and
+-- Phase 1 (memo v4.0 §4) collects only nominations — no reasons — so a
+-- Phase 2 voter must be able to pick a company nobody nominated. Picking one
+-- now creates the company and a nomination row, exactly like Phase 1's
+-- nominate_company. The v6s shortlist becomes advisory, gated by a new
+-- settings.shortlist_enforced flag that defaults to OFF; an admin can turn
+-- it back on with admin_set_shortlist_enforced(true). BEGIN v7c
+-- Apply statement by statement:  node scripts/apply-sql.mjs v7c
+-- Idempotent: safe to run twice.
+-- ===========================================================================
+
+alter table public.settings add column if not exists shortlist_enforced boolean
+  not null default false;
+
+-- Internal: is the v6s shortlist currently gating Phase 2 ballots? Off by
+-- default per campaign memo v4.0, which defines no shortlist for Phase 2.
+create or replace function public.shortlist_is_enforced()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce((select s.shortlist_enforced from public.settings s where s.id = 1), false);
+$$;
+
+revoke all on function public.shortlist_is_enforced() from public, anon, authenticated;
+
+-- Internal: resolve (creating if necessary) the company a Phase 2 pick
+-- names, and make sure it has a nomination row, mirroring nominate_company's
+-- domain normalization, name: pseudo-domain fallback, merged_into chain
+-- following, and companies/nominations inserts. Returns the canonical
+-- domain. Called only from cast_ballot(); never reachable by anon/authenticated
+-- directly.
+create or replace function public.ensure_vote_company(
+  p_domain text,
+  p_name text,
+  p_email text,
+  p_client_id text
+)
+returns text
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_in text := btrim(coalesce(p_domain, ''));
+  v_name text := left(regexp_replace(btrim(coalesce(p_name, '')), '\s+', ' ', 'g'), 60);
+  v_email text := nullif(lower(btrim(coalesce(p_email, ''))), '');
+  v_client text := nullif(left(btrim(coalesce(p_client_id, '')), 64), '');
+  v_domain text;
+  v_c public.companies;
+  v_hops int := 0;
+begin
+  if v_in <> '' then
+    v_domain := public.normalize_domain(v_in);
+    -- A freshly typed website must look like a real domain. But the
+    -- `domain` field of an existing ballot pick may instead be an existing
+    -- candidate's own canonical key (including a `name:` pseudo-domain,
+    -- which valid_domain() rejects by design) — e.g. vote_candidates()
+    -- hands that key straight back to the client. Accept it too when it
+    -- already names a company, so picking an existing name:-only candidate
+    -- (v6n) keeps working exactly as it did before v7c.
+    if v_domain is null or (
+      not public.valid_domain(v_domain)
+      and not exists (select 1 from public.companies c where c.domain = v_domain)
+    ) then
+      raise exception '請輸入正確的官方網站，例如 https://example.com';
+    end if;
+  else
+    -- No domain/site given — mirror nominate_company's name-only path.
+    -- company_name_key() already returns the 'name:' prefixed key.
+    v_domain := public.company_name_key(p_name);
+    if v_domain is null then
+      raise exception '找不到這家公司。';
+    end if;
+  end if;
+
+  select * into v_c from public.companies c where c.domain = v_domain;
+  while v_c.merged_into is not null and v_hops < 5 loop
+    select * into v_c from public.companies c where c.domain = v_c.merged_into;
+    v_hops := v_hops + 1;
+  end loop;
+
+  if v_c.domain is null then
+    if v_name = '' then
+      raise exception '找不到這家公司。';
+    end if;
+    insert into public.companies (domain, display_name, status)
+    values (v_domain, v_name, 'pending')
+    on conflict (domain) do nothing;
+    select * into v_c from public.companies c where c.domain = v_domain;
+  end if;
+
+  if not exists (select 1 from public.nominations n where n.domain = v_c.domain) then
+    insert into public.nominations (domain, session_id, typed_name, reason, email, client_id)
+    values (v_c.domain, auth.uid(), nullif(v_name, ''), null, v_email, v_client);
+  end if;
+
+  return v_c.domain;
+end;
+$$;
+
+revoke all on function public.ensure_vote_company(text, text, text, text) from public, anon, authenticated;
+
+-- The full Phase 2 ballot, now able to name a company nobody nominated yet.
+-- Body is the v6s cast_ballot(text, jsonb) at schema.sql (v6s block) with two
+-- changes: (a) each pick may carry domain/name/site/reason and is resolved
+-- via ensure_vote_company() instead of requiring a pre-existing candidate;
+-- (b) the shortlist gate only applies when shortlist_is_enforced() is true.
+-- Every other rule — email format, phase/tester gate, 1-3 picks, the max-3
+-- message, distinct domains, one ballot per Asia/Taipei day (plus the
+-- unique_violation catch), and the returned jsonb shape — is unchanged.
+create or replace function public.cast_ballot(p_email text, p_picks jsonb, p_client_id text)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_phase text := public.effective_phase();
+  v_email text := btrim(coalesce(p_email, ''));
+  v_key text;
+  v_today date := (now() at time zone 'Asia/Taipei')::date;
+  v_n int;
+  v_item jsonb;
+  v_in text;
+  v_name text;
+  v_domain text;
+  v_reason text;
+  v_domains text[] := '{}';
+  v_reasons text[] := '{}';
+  v_ballot_id bigint;
+  v_pick_id bigint;
+  v_out jsonb := '[]'::jsonb;
+  i int;
+begin
+  if char_length(v_email) > 254 or v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請確認 Email 格式。';
+  end if;
+  v_key := lower(v_email);
+
+  if v_phase is distinct from 'vote' and not public.is_tester(v_key) then
+    if v_phase in ('pre', 'nominate') then
+      raise exception '投票尚未開放。';
+    end if;
+    raise exception '投票已截止。';
+  end if;
+
+  if p_picks is null or jsonb_typeof(p_picks) <> 'array' or jsonb_array_length(p_picks) < 1 then
+    raise exception '請至少選擇 1 家公司。';
+  end if;
+  v_n := jsonb_array_length(p_picks);
+  if v_n > 3 then
+    raise exception '每張選票最多選 3 家公司。';
+  end if;
+
+  for v_item in select e.value from jsonb_array_elements(p_picks) e loop
+    if jsonb_typeof(v_item) <> 'object' then
+      raise exception '這個動作無法完成。';
+    end if;
+    v_reason := btrim(regexp_replace(coalesce(v_item ->> 'reason', ''), '\s+', ' ', 'g'));
+    if char_length(v_reason) < 10 or char_length(v_reason) > 50 then
+      raise exception '每家公司的理由需要 10–50 個字。';
+    end if;
+    -- v7c: campaign memo v4.0 does not define a shortlist for Phase 2, and
+    -- Phase 1 collected only nominations (no reasons), so a Phase 2 voter
+    -- must be able to vote for a company nobody nominated — picking it
+    -- creates the company and a nomination row, exactly like Phase 1 does.
+    -- The reason check above always runs first, so a rejected pick never
+    -- creates a company.
+    v_in := coalesce(nullif(btrim(v_item ->> 'domain'), ''), nullif(btrim(v_item ->> 'site'), ''));
+    v_name := nullif(btrim(v_item ->> 'name'), '');
+    v_domain := public.ensure_vote_company(v_in, v_name, v_email, p_client_id);
+    if v_domain = any (v_domains) then
+      raise exception '同一家公司只能選一次。';
+    end if;
+    -- v7c: campaign memo v4.0 does not define a shortlist for Phase 2; the
+    -- gate is advisory and off by default.
+    if public.shortlist_is_enforced() then
+      if not exists (
+        select 1 from public.shortlist_domains() sd where sd.domain = v_domain
+      ) then
+        raise exception '這家公司不在第二階段的前 10 名名單中。';
+      end if;
+    end if;
+    v_domains := v_domains || v_domain;
+    v_reasons := v_reasons || v_reason;
+  end loop;
+
+  if exists (select 1 from public.ballots b where b.email_key = v_key and b.ballot_date = v_today) then
+    raise exception '今天已經投過了，明天可以再投一次。';
+  end if;
+
+  if v_uid is not null and (
+    select count(*) from public.ballots b
+    where b.session_id = v_uid and b.created_at > now() - interval '1 hour'
+  ) >= 30 then
+    raise exception '操作過於頻繁，請稍後再試。';
+  end if;
+
+  begin
+    insert into public.ballots (email_key, email, ballot_date, session_id)
+    values (v_key, v_email, v_today, v_uid)
+    returning id into v_ballot_id;
+  exception when unique_violation then
+    raise exception '今天已經投過了，明天可以再投一次。';
+  end;
+
+  for i in 1 .. v_n loop
+    insert into public.ballot_picks (ballot_id, domain, reason)
+    values (v_ballot_id, v_domains[i], v_reasons[i])
+    returning id into v_pick_id;
+    v_out := v_out || jsonb_build_array(jsonb_build_object('pick_id', v_pick_id, 'domain', v_domains[i]));
+  end loop;
+
+  return jsonb_build_object(
+    'ballot_id', v_ballot_id,
+    'ballot_date', to_char(v_today, 'YYYY-MM-DD'),
+    'picks', v_out
+  );
+end;
+$$;
+
+-- The 2-arg overload changes return type (json -> jsonb) so it must be
+-- dropped before it can be replaced; the 3-arg version above stays put.
+drop function if exists public.cast_ballot(text, jsonb);
+
+-- Thin wrapper so the CURRENTLY DEPLOYED client (which calls the 2-arg form)
+-- keeps working unchanged.
+create or replace function public.cast_ballot(p_email text, p_picks jsonb)
+returns jsonb
+language sql
+volatile
+security definer
+set search_path = public
+as $$
+  select public.cast_ballot(p_email, p_picks, null::text);
+$$;
+
+grant execute on function public.cast_ballot(text, jsonb, text) to anon, authenticated;
+
+grant execute on function public.cast_ballot(text, jsonb) to anon, authenticated;
+
+-- v7c: the Phase 2 suggestion box only restricts to the shortlist while the
+-- gate is enforced; otherwise every live candidate is offered (mirrors Phase
+-- 1's open nomination search).
+create or replace function public.vote_candidates(q text)
+returns table (domain text, display_name text, aliases text[])
+language sql
+stable
+security definer
+set search_path = public, extensions
+as $$
+  with t as (
+    select lower(btrim(coalesce(q, ''))) as k,
+           replace(replace(replace(lower(btrim(coalesce(q, ''))), '\', '\\'), '%', '\%'), '_', '\_') as p
+  )
+  select cv.domain, cv.display_name, cv.aliases
+  from public.company_votes() cv, t
+  where cv.is_candidate
+    and (not public.shortlist_is_enforced() or exists (select 1 from public.shortlist_domains() sd where sd.domain = cv.domain))
+    and char_length(t.k) <= 80
+    and (
+      t.k = ''
+      or lower(cv.display_name) like '%' || t.p || '%'
+      or exists (select 1 from unnest(cv.aliases) a where lower(a) like '%' || t.p || '%')
+      or cv.domain like t.p || '%'
+      or (char_length(t.k) >= 3 and similarity(lower(cv.display_name), t.k) > 0.3)
+    )
+  order by
+    (t.k <> '' and (lower(cv.display_name) = t.k
+      or exists (select 1 from unnest(cv.aliases) a where lower(a) = t.k))) desc,
+    (t.k <> '' and lower(cv.display_name) like t.p || '%') desc,
+    case when t.k <> '' then similarity(lower(cv.display_name), t.k) else 0 end desc,
+    cv.rank
+  limit 12;
+$$;
+
+grant execute on function public.vote_candidates(text) to anon, authenticated;
+
+-- Admin toggle for the (now advisory, off-by-default) shortlist gate.
+create or replace function public.admin_set_shortlist_enforced(p_enabled boolean)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  update public.settings set shortlist_enforced = coalesce(p_enabled, false) where id = 1;
+  return jsonb_build_object('shortlist_enforced', coalesce(p_enabled, false));
+end;
+$$;
+
+grant execute on function public.admin_set_shortlist_enforced(boolean) to authenticated;
+
+-- admin_shortlist() gains one new key (shortlist_enforced) on every row, so
+-- its return type changes and it must be dropped before being replaced.
+drop function if exists public.admin_shortlist();
+
+create or replace function public.admin_shortlist()
+returns table (
+  domain text,
+  display_name text,
+  voters int,
+  noms int,
+  first_at timestamptz,
+  rank int,
+  in_shortlist boolean,
+  shortlist_rank int,
+  locked boolean,
+  locked_at timestamptz,
+  shortlist_enforced boolean
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_locked boolean;
+  v_enforced boolean;
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  v_locked := exists (select 1 from public.shortlist);
+  v_enforced := public.shortlist_is_enforced();
+  return query
+    with nr as (select * from public.nomination_rank()),
+    live as (
+      select d.domain from public.shortlist_domains() d
+    ),
+    r0 as (
+      select nr.domain, nr.display_name, nr.voters, nr.noms, nr.first_at, nr.rank from nr
+      union all
+      -- a manually added company that currently has no nomination at all
+      select s.domain, c.display_name, 0, 0, null::timestamptz, null::int
+      from public.shortlist s
+      join public.companies c on c.domain = s.domain
+      where not exists (select 1 from nr where nr.domain = s.domain)
+    )
+    select r0.domain, r0.display_name, r0.voters, r0.noms, r0.first_at, r0.rank,
+           exists (select 1 from live l where l.domain = r0.domain),
+           sl.rank,
+           v_locked,
+           sl.locked_at,
+           v_enforced
+    from r0
+    left join public.shortlist sl on sl.domain = r0.domain
+    order by (sl.rank is null), sl.rank, r0.rank nulls last, r0.domain;
+end;
+$$;
+
+revoke all on function public.admin_shortlist() from public, anon, authenticated;
+
+grant execute on function public.admin_shortlist() to authenticated;
+
+-- END v7c

@@ -662,7 +662,7 @@ $$`,
 // is one voter, a second browser is a second, and a row with neither email
 // nor client_id still counts as exactly one.
 rollbackTest(
-  "rollback test: v6f 5-arg stores client_id; one browser counts once",
+  "rollback test: v6f 5-arg stores client_id alongside the raw count",
   `do $$
 declare v_voters int; v_noms int; v_cid text; v_cids int;
 begin
@@ -679,6 +679,8 @@ begin
     where nm.domain = 'rls-probe.example' order by nm.id desc limit 1;
   select r.voters, r.noms into v_voters, v_noms
     from public.nomination_rank() r where r.domain = 'rls-probe.example';
+  -- v6g: the owner ranks by raw nomination count, so voters is informational
+  -- only and five rows from one browser count as five nominations.
   if v_cids <> 3 or v_cid is not null or v_voters <> 3 or v_noms <> 5 then
     raise exception 'ROLLBACK_BAD cids=% last_cid=% voters=% noms=%', v_cids, v_cid, v_voters, v_noms;
   end if;
@@ -720,6 +722,27 @@ rollbackTest(
     "",
   ),
 );
+
+// ---------------------------------------------- v7c shortlist made advisory
+// shortlist_is_enforced() and ensure_vote_company() are internal helpers
+// (called only from cast_ballot()/vote_candidates()/admin_shortlist()) with
+// no grant at all, so anon must be refused outright. admin_set_shortlist_enforced()
+// joins the existing admin_*-rejects-anon list.
+for (const [fn, args] of [
+  ["shortlist_is_enforced", undefined],
+  [
+    "ensure_vote_company",
+    {
+      p_domain: "rls-probe.example",
+      p_name: "rls-probe",
+      p_email: "rls-probe@example.com",
+      p_client_id: "rls-probe-cid",
+    },
+  ],
+  ["admin_set_shortlist_enforced", { p_enabled: true }],
+]) {
+  await mustErrorLater(`${fn}() rejects anon`, () => sb.rpc(fn, args));
+}
 
 // Nothing must have been written by the probes above.
 const { count } = await sb

@@ -4,7 +4,7 @@
 --
 --   node scripts/apply-sql.mjs --sql "$(sed -n '/^do /,$p' supabase/tests/v6s-shortlist.sql)"
 --
--- Covered: distinct-email ranking beats raw spam; ties break on the earliest
+-- Covered: raw nomination count drives the rank (v6g); ties break on the earliest
 -- nomination; locking produces exactly 10; a ballot for a company outside a
 -- locked shortlist is refused in Chinese; an empty shortlist falls back to
 -- the live top 10.
@@ -70,8 +70,10 @@ begin
   if pair.voters <> 2 or pair.noms <> 2 then
     raise exception 'FAIL: pair counted % voters / % noms', pair.voters, pair.noms;
   end if;
-  if pair.rank >= spam.rank then
-    raise exception 'FAIL: raw spam (rank %) outranked two real nominators (rank %)',
+  -- v6g (owner's rule): ranking follows the raw nomination count, so five
+  -- nominations outrank two regardless of how many people made them.
+  if spam.rank >= pair.rank then
+    raise exception 'FAIL: five nominations (rank %) did not outrank two (rank %)',
       spam.rank, pair.rank;
   end if;
 
@@ -111,15 +113,24 @@ begin
   b := public.cast_ballot('v6s-live@example.com',
         jsonb_build_array(jsonb_build_object('domain', 'qa-v6s-01.example', 'reason', r10)));
   if b ->> 'ballot_id' is null then raise exception 'FAIL: live-fallback ballot rejected'; end if;
+  -- v7c (memo v4.0): the shortlist gate is OFF by default, so a company
+  -- outside the live top 10 is accepted. Turning the flag on restores the gate.
+  b := public.cast_ballot('v6s-live2@example.com',
+        jsonb_build_array(jsonb_build_object('domain', 'qa-v6s-11.example', 'reason', r10)));
+  if b ->> 'ballot_id' is null then
+    raise exception 'FAIL: outsider rejected while the gate is off';
+  end if;
+  update public.settings set shortlist_enforced = true where id = 1;
   begin
-    perform public.cast_ballot('v6s-live2@example.com',
+    perform public.cast_ballot('v6s-live3@example.com',
       jsonb_build_array(jsonb_build_object('domain', 'qa-v6s-11.example', 'reason', r10)));
-    raise exception 'LIVE_OUTSIDER_ACCEPTED';
+    raise exception 'GATE_ON_OUTSIDER_ACCEPTED';
   exception when others then
-    if sqlerrm <> '這家公司不在第二階段的前 10 名名單中。' then
-      raise exception 'FAIL live outsider: %', sqlerrm;
+    if sqlerrm not like '%第二階段%' then
+      raise exception 'FAIL gate-on outsider: %', sqlerrm;
     end if;
   end;
+  update public.settings set shortlist_enforced = false where id = 1;
 
   -- (3) Locking freezes exactly 10 rows.
   select count(*) into n from public.admin_lock_shortlist();
@@ -140,16 +151,24 @@ begin
   select a.locked into is_locked from public.admin_shortlist() a limit 1;
   if not is_locked then raise exception 'FAIL: admin_shortlist should report locked'; end if;
 
-  -- (4) Outside the LOCKED shortlist → refused, in Chinese.
+  -- (4) Outside the LOCKED shortlist: still accepted while the gate is off
+  -- (memo v4.0 has no shortlist), refused once shortlist_enforced is on.
+  b := public.cast_ballot('v6s-out@example.com',
+        jsonb_build_array(jsonb_build_object('domain', 'qa-v6s-pair.example', 'reason', r10)));
+  if b ->> 'ballot_id' is null then
+    raise exception 'FAIL: locked outsider rejected while the gate is off';
+  end if;
+  update public.settings set shortlist_enforced = true where id = 1;
   begin
-    perform public.cast_ballot('v6s-out@example.com',
+    perform public.cast_ballot('v6s-out2@example.com',
       jsonb_build_array(jsonb_build_object('domain', 'qa-v6s-pair.example', 'reason', r10)));
     raise exception 'LOCKED_OUTSIDER_ACCEPTED';
   exception when others then
-    if sqlerrm <> '這家公司不在第二階段的前 10 名名單中。' then
+    if sqlerrm not like '%第二階段%' then
       raise exception 'FAIL locked outsider: %', sqlerrm;
     end if;
   end;
+  update public.settings set shortlist_enforced = false where id = 1;
 
   -- Manual override: ranks follow the array order and the override decides.
   perform public.admin_set_shortlist(array['qa-v6s-11.example', 'qa-v6s-pair.example']);
@@ -163,19 +182,28 @@ begin
   b := public.cast_ballot('v6s-manual@example.com',
         jsonb_build_array(jsonb_build_object('domain', 'qa-v6s-11.example', 'reason', r10)));
   if b ->> 'ballot_id' is null then raise exception 'FAIL: manual shortlist ballot rejected'; end if;
+  update public.settings set shortlist_enforced = true where id = 1;
   begin
     perform public.cast_ballot('v6s-manual2@example.com',
       jsonb_build_array(jsonb_build_object('domain', 'qa-v6s-01.example', 'reason', r10)));
     raise exception 'MANUAL_OUTSIDER_ACCEPTED';
   exception when others then
-    if sqlerrm <> '這家公司不在第二階段的前 10 名名單中。' then
+    if sqlerrm not like '%第二階段%' then
       raise exception 'FAIL manual outsider: %', sqlerrm;
     end if;
   end;
+  update public.settings set shortlist_enforced = false where id = 1;
 
-  -- vote_candidates() offers the shortlist and nothing else.
+  -- v7c: with the gate off, vote_candidates() offers every nominated company;
+  -- with the gate on it narrows to the manual shortlist (2 rows here).
   select count(*) into n from public.vote_candidates('');
-  if n <> 2 then raise exception 'FAIL: vote_candidates offered % rows, expected 2', n; end if;
+  if n < 3 then
+    raise exception 'FAIL: gate off, vote_candidates offered only % rows', n;
+  end if;
+  update public.settings set shortlist_enforced = true where id = 1;
+  select count(*) into n from public.vote_candidates('');
+  if n <> 2 then raise exception 'FAIL: gate on, vote_candidates offered % rows, expected 2', n; end if;
+  update public.settings set shortlist_enforced = false where id = 1;
 
   -- Clearing the override hands Phase 2 back to the live top 10.
   perform public.admin_set_shortlist(array[]::text[]);
