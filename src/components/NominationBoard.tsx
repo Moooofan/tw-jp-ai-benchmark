@@ -180,7 +180,7 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
       </ol>
       <footer className="boardfoot">
         <span className="bnote">
-          目前 {board.total_companies} 家公司被提名，排名即時更新。
+          目前 {board.total_companies} 家公司被提名。
         </span>
         <NominateCta stats={stats} className="btn btn--red btn--sm">
           <Icon icon={ArrowRight} />
