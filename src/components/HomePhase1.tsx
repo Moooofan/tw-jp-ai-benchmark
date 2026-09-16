@@ -70,7 +70,11 @@ export default function HomePhase1({ stats }: { stats: Stats }) {
               </div>
               <p className="hero__disc">
                 <Icon icon={Info} />
-                <span>{DISCLAIMER}</span>
+                <span>
+                  {DISCLAIMER}
+                  <br />
+                  發布單位：VM布爾喬亞新創服務事業群
+                </span>
               </p>
             </div>
             <div className="vert" aria-hidden="true">

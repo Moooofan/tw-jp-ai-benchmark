@@ -705,3 +705,5 @@ button.btn--done{background:var(--ink)}
 .steps-note{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:8px;font-size:14px;color:var(--muted)}
 .steps-note li{padding-left:18px;position:relative}
 .steps-note li::before{content:"";position:absolute;left:0;top:10px;width:8px;height:2px;background:var(--brand)}
+
+.hero__disc br + *,.hero__disc span br{line-height:2.2}
