@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { isNameKey, monthDay, nameKey } from "@/lib/format";
 import { errText, getBrowserClient } from "@/lib/supabase-browser";
-import type { CompanyMatch, Stats } from "@/lib/types";
+import type { CompanyMatch, ExternalCompany, Stats } from "@/lib/types";
 import Favicon from "./Favicon";
 import Icon from "./Icon";
 import { JUST_NOMINATED_KEY } from "./NominationBoard";
@@ -34,14 +34,25 @@ const cleanReason = (s: string) => s.replace(/\s+/g, " ").trim();
 /** Same normalisation as the name key: collapse whitespace, trim. */
 const cleanName = (s: string) => s.replace(/\s+/g, " ").trim();
 const NAME_MIN = 2;
+/** Wikidata descriptions are one-liners; anything longer is noise in a row. */
+const DESC_MAX = 30;
+const clip = (s: string) =>
+  s.length > DESC_MAX ? `${s.slice(0, DESC_MAX)}…` : s;
 
 /**
  * `typed`: the company was not in the list and is nominated by its typed name
  * (v6n) — the website is optional and the database keys it as `name:…`.
+ * `external`: picked from the public-data suggestions (v6l) — it already has
+ * a real domain, shown in an editable website field.
  */
 type Step =
   | { kind: "search" }
-  | { kind: "confirm"; company: CompanyMatch; typed: boolean }
+  | {
+      kind: "confirm";
+      company: CompanyMatch;
+      typed: boolean;
+      external?: boolean;
+    }
   | { kind: "done"; company: CompanyMatch; reason: string };
 
 function CompanyCard({ c }: { c: CompanyMatch }) {
@@ -88,6 +99,7 @@ export default function NominateClient({
   const [name, setName] = useState("");
   const [site, setSite] = useState("");
   const [matches, setMatches] = useState<CompanyMatch[]>([]);
+  const [externals, setExternals] = useState<ExternalCompany[]>([]);
   const [searched, setSearched] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -104,18 +116,40 @@ export default function NominateClient({
     const q = name.trim();
     if (!q) {
       setMatches([]);
+      setExternals([]);
       setSearched("");
       return;
     }
     let live = true;
-    const t = setTimeout(async () => {
-      const { data } = await supabase.rpc("resolve_company", { q });
-      if (!live) return;
-      setMatches((data as CompanyMatch[] | null) ?? []);
-      setSearched(q);
+    const abort = new AbortController();
+    const t = setTimeout(() => {
+      // Our own resolver decides the list (instant, authoritative); the public
+      // lookup only appends extra candidates and must never hold it up.
+      void (async () => {
+        const { data } = await supabase.rpc("resolve_company", { q });
+        if (!live) return;
+        setMatches((data as CompanyMatch[] | null) ?? []);
+        setSearched(q);
+      })();
+      void (async () => {
+        try {
+          const res = await fetch(
+            `/api/company-lookup?q=${encodeURIComponent(q)}`,
+            { signal: abort.signal },
+          );
+          const json = (await res.json()) as {
+            suggestions?: ExternalCompany[];
+          };
+          if (!live) return;
+          setExternals(json.suggestions ?? []);
+        } catch {
+          if (live) setExternals([]); // suggestions are a bonus, never an error
+        }
+      })();
     }, SEARCH_MS);
     return () => {
       live = false;
+      abort.abort();
       clearTimeout(t);
     };
   }, [name, supabase]);
@@ -133,6 +167,27 @@ export default function NominateClient({
         m.aliases.some((a) => cleanName(a).toLowerCase() === typedLower),
     );
 
+  // Public-data suggestions we do not already list ourselves (v6l).
+  const extras = externals.filter(
+    (e) =>
+      !matches.some(
+        (m) =>
+          m.domain === e.domain ||
+          cleanName(m.display_name).toLowerCase() ===
+            cleanName(e.display_name).toLowerCase(),
+      ),
+  );
+
+  function pickExternal(e: ExternalCompany) {
+    setSite(e.domain);
+    setStep({
+      kind: "confirm",
+      company: { domain: e.domain, display_name: e.display_name, aliases: [] },
+      typed: false,
+      external: true,
+    });
+  }
+
   async function nominate(c: CompanyMatch, typedStep: boolean) {
     const r = cleanReason(reason);
     const em = email.trim();
@@ -148,7 +203,12 @@ export default function NominateClient({
     // maps back to the same key.
     let pDomain: string | null = c.domain;
     let pName = name.trim() || c.display_name;
-    if (isNameKey(c.domain)) {
+    if (step.kind === "confirm" && step.external) {
+      // Keep the suggestion's own name and its (possibly edited) website —
+      // the typed text is usually a partial, lower-case version of it.
+      pDomain = site.trim() || c.domain;
+      pName = c.display_name;
+    } else if (isNameKey(c.domain)) {
       pDomain = typedStep ? site.trim() || null : null;
       pName =
         nameKey(c.display_name) === c.domain
@@ -184,6 +244,7 @@ export default function NominateClient({
     setName("");
     setSite("");
     setMatches([]);
+    setExternals([]);
     setSearched("");
     setReason("");
     setErr("");
@@ -245,13 +306,17 @@ export default function NominateClient({
       <div className="flow">
         <h3>{step.typed ? "提名這家公司" : "是這家公司嗎？"}</h3>
         <CompanyCard c={c} />
-        {step.typed ? (
+        {step.typed || step.external ? (
           <>
-            <p className="fine">我們會再確認這家公司的官方網站。</p>
+            <p className="fine">
+              {step.external
+                ? "網址來自公開資料，可以修改。"
+                : "我們會再確認這家公司的官方網站。"}
+            </p>
             <div className="f">
               <label htmlFor="site">
                 <Icon icon={Globe} />
-                官方網站（選填）
+                {step.external ? "官方網站" : "官方網站（選填）"}
               </label>
               <input
                 id="site"
@@ -267,7 +332,9 @@ export default function NominateClient({
                 }}
               />
               <p id="site-hint" className="fine">
-                知道的話填一下，能幫我們更快辨識。
+                {step.external
+                  ? "這會是這家公司在榜上的身分。"
+                  : "知道的話填一下，能幫我們更快辨識。"}
               </p>
             </div>
           </>
@@ -396,7 +463,7 @@ export default function NominateClient({
           {emailErr ? <p className="err">{emailErr}</p> : null}
         </div>
 
-        {matches.length > 0 || offerTyped ? (
+        {matches.length > 0 || extras.length > 0 || offerTyped ? (
           <ul className="matches" aria-label="搜尋結果">
             {matches.map((m) => (
               <li key={m.domain}>
@@ -415,6 +482,32 @@ export default function NominateClient({
                   </span>
                   <span className="dom">
                     {isNameKey(m.domain) ? "官網待確認" : m.domain}
+                  </span>
+                </button>
+              </li>
+            ))}
+            {extras.length > 0 ? (
+              <li className="sep" aria-hidden="true">
+                其他可能的公司
+              </li>
+            ) : null}
+            {extras.map((e) => (
+              <li key={`x:${e.domain}`}>
+                <button type="button" onClick={() => pickExternal(e)}>
+                  <span
+                    className="fav fav--none"
+                    style={{ width: 28, height: 28 }}
+                    aria-hidden="true"
+                  >
+                    {(e.display_name.trim()[0] ?? "?").toUpperCase()}
+                  </span>
+                  <span className="co">
+                    <b>{e.display_name}</b>
+                    {e.description ? <small>{clip(e.description)}</small> : null}
+                  </span>
+                  <span className="dom">
+                    <span className="srcchip">公開資料</span>
+                    {e.domain}
                   </span>
                 </button>
               </li>

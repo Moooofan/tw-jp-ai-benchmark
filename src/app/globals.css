@@ -695,3 +695,7 @@ button.btn--done{background:var(--ink)}
 .apicks li.is-hidden{opacity:.5;text-decoration:line-through}
 .arow--tight{display:inline-flex;gap:6px;margin:0;align-items:center}
 .at .arow--tight input[type="number"]{width:80px;min-width:0}
+
+/* external company suggestions on /nominate (v6l, public data / Wikidata) */
+.matches .sep{padding:7px 14px;background:var(--ground);font-family:var(--cond);font-weight:700;font-size:12px;letter-spacing:.12em;color:var(--muted)}
+.srcchip{display:inline-block;margin-right:8px;font-family:var(--cond);font-weight:800;font-size:11px;letter-spacing:.08em;background:var(--gold-soft);color:var(--ink);padding:2px 6px;line-height:1.4}

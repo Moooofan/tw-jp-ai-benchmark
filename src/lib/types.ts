@@ -142,6 +142,19 @@ export type CompanyMatch = {
   exists?: boolean;
 };
 
+/**
+ * A company suggested by the external lookup (`/api/company-lookup`, v6l).
+ * Public-data only: Wikidata (CC0). Nothing but `display_name` and `domain`
+ * is ever sent to `nominate_company()`.
+ */
+export type ExternalCompany = {
+  display_name: string;
+  domain: string;
+  description: string;
+  source: "wikidata";
+  taiwan: boolean;
+};
+
 export type AdminCompany = {
   domain: string;
   display_name: string;
