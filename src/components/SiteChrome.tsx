@@ -20,7 +20,7 @@ export type ChromeStory = {
 /** Header CTA by phase (spec v5; Phase 1 per spec v6 §3). */
 export function headerCta(phase: Phase): { label: string; href: string } {
   if (phase === "nominate") return { label: "立即提名", href: "/nominate" };
-  if (phase === "pre") return { label: "提名說明", href: "/#how" };
+  if (phase === "pre") return { label: "常見問題", href: "/#faq" };
   if (phase === "vote") return { label: "立即投票", href: "/vote" };
   if (phase === "closed") return { label: "直播預告", href: "/#live" };
   return { label: "查看活動方式", href: "/#how" };
@@ -104,7 +104,7 @@ export default function SiteChrome({
             <Link href="/#background">前情提要</Link>
             {phaseOne ? (
               <>
-                <Link href="/#how">提名說明</Link>
+                <Link href="/#faq">常見問題</Link>
               </>
             ) : votePhase ? (
               <>
@@ -134,6 +134,7 @@ export default function SiteChrome({
             <div className="foot-big">
               TAIWAN <span>→</span> JAPAN 2026
             </div>
+            <p className="publisher">發布單位：VM布爾喬亞新創服務事業群</p>
             <p>{DISCLAIMER}</p>
             {stats.contact_email ? (
               <p>
@@ -147,7 +148,7 @@ export default function SiteChrome({
           <nav>
             {phaseOne ? (
               <>
-                <Link href="/#how">提名說明</Link>
+                <Link href="/#faq">常見問題</Link>
               </>
             ) : (
               <>

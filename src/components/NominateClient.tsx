@@ -486,6 +486,11 @@ export default function NominateClient({
       <div className="wrap">
         <div className="solo">
           <div className="formcard">{body}</div>
+          <ul className="steps-note">
+            <li>中文、英文、品牌名都可以，找不到就選「直接提名」。</li>
+            <li>官方網站是選填，知道的話填一下，能幫我們更快辨識。</li>
+            <li>同一家公司可以被很多人提名，提名的人越多排名越前面。</li>
+          </ul>
         </div>
       </div>
     </SiteChrome>

@@ -1,12 +1,6 @@
 import {
   ArrowRight,
-  CalendarDays,
-  CircleCheckBig,
   Info,
-  Megaphone,
-  Search,
-  SquareCheckBig,
-  type LucideIcon,
 } from "lucide-react";
 import { dateRange } from "@/lib/format";
 import type { Stats } from "@/lib/types";
@@ -15,28 +9,15 @@ import Band from "./Band";
 import Icon from "./Icon";
 import SiteChrome, { DISCLAIMER, NominateCta } from "./SiteChrome";
 
-const STEPS: { icon: LucideIcon; h: string; p: string }[] = [
-  { icon: Search, h: "輸入公司名稱", p: "中文、英文、品牌名都可以。" },
-  {
-    icon: SquareCheckBig,
-    h: "確認是這家公司",
-    p: "我們會顯示公司名稱與官方網站。",
-  },
-  {
-    icon: CircleCheckBig,
-    h: "完成提名",
-    p: "同一家公司可以被很多人提名，提名的人越多排名越前面。",
-  },
-];
 
-const FAQ: { q: string; a: string }[] = [
+const faqItems = (stats: Stats): { q: string; a: string }[] => [
   {
     q: "需要註冊或留 Email 嗎？",
-    a: "不需要。輸入公司名稱、確認後就完成提名。",
+    a: "不需要。輸入公司名稱、確認是這家公司，就完成提名。",
   },
   {
     q: "找不到我要提名的公司怎麼辦？",
-    a: "輸入它的官方網站，我們會用網域辨識是哪一家公司。",
+    a: "在搜尋結果最後選「找不到？直接提名」就可以。官方網站是選填，知道的話填一下，能幫我們更快辨識。",
   },
   {
     q: "同一家公司被很多人提名，會比較有利嗎？",
@@ -46,9 +27,12 @@ const FAQ: { q: string; a: string }[] = [
     q: "什麼樣的公司可以被提名？",
     a: "台灣新創，且過去五年在日本市場有公開可查的發展。",
   },
+  {
+    q: "活動時間怎麼安排？",
+    a: `提名期間 ${dateRange(stats.nominate_open, stats.nominate_close)}；投票期間 ${dateRange(stats.vote_open, stats.vote_close)}；結果公布 ${stats.results_label}。`,
+  },
 ];
 
-const pad2 = (n: number) => String(n).padStart(2, "0");
 
 /**
  * `/` in pre / nominate (spec v6 §3): one question, a frictionless nomination entry,
@@ -97,53 +81,11 @@ export default function HomePhase1({ stats }: { stats: Stats }) {
         </div>
 
         <div className="wrap">
-          <div className="sched" aria-label="時程安排">
-            <div className={open ? "sc now" : "sc"}>
-              <Icon icon={CalendarDays} />
-              <span className="k">提名期間</span>
-              <span className="v">
-                {dateRange(stats.nominate_open, stats.nominate_close)}
-              </span>
-            </div>
-            <div className="sc">
-              <Icon icon={SquareCheckBig} />
-              <span className="k">投票期間</span>
-              <span className="v">
-                {dateRange(stats.vote_open, stats.vote_close)}
-              </span>
-            </div>
-            <div className="sc">
-              <Icon icon={Megaphone} />
-              <span className="k">結果公布</span>
-              <span className="v">{stats.results_label}</span>
-            </div>
-          </div>
-
-          <BackgroundBand ctaHref={open ? "/nominate" : "#how"} />
-
-          <Band id="how" chip="How To Nominate" title="提名說明">
-            <div className="grid g3">
-              {STEPS.map((s, i) => (
-                <article className="card" key={s.h}>
-                  <div className="no">
-                    <span>— STEP {pad2(i + 1)}</span>
-                    <Icon icon={s.icon} lg />
-                  </div>
-                  <h3>{s.h}</h3>
-                  <p>{s.p}</p>
-                </article>
-              ))}
-            </div>
-            <div className="howcta">
-              <NominateCta stats={stats}>
-                <Icon icon={ArrowRight} />
-              </NominateCta>
-            </div>
-          </Band>
+          <BackgroundBand ctaHref={open ? "/nominate" : "#faq"} />
 
           <Band id="faq" chip="FAQ" title="常見問題">
             <div className="acc">
-              {FAQ.map((f) => (
+              {faqItems(stats).map((f) => (
                 <details key={f.q}>
                   <summary>{f.q}</summary>
                   <div className="a">{f.a}</div>

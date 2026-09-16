@@ -699,3 +699,9 @@ button.btn--done{background:var(--ink)}
 /* external company suggestions on /nominate (v6l, public data / Wikidata) */
 .matches .sep{padding:7px 14px;background:var(--ground);font-family:var(--cond);font-weight:700;font-size:12px;letter-spacing:.12em;color:var(--muted)}
 .srcchip{display:inline-block;margin-right:8px;font-family:var(--cond);font-weight:800;font-size:11px;letter-spacing:.08em;background:var(--gold-soft);color:var(--ink);padding:2px 6px;line-height:1.4}
+
+.foot .publisher{font-weight:700;color:#fff;margin:10px 0 0}
+
+.steps-note{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:8px;font-size:14px;color:var(--muted)}
+.steps-note li{padding-left:18px;position:relative}
+.steps-note li::before{content:"";position:absolute;left:0;top:10px;width:8px;height:2px;background:var(--brand)}
