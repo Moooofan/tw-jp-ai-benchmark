@@ -707,3 +707,10 @@ button.btn--done{background:var(--ink)}
 .steps-note li::before{content:"";position:absolute;left:0;top:10px;width:8px;height:2px;background:var(--brand)}
 
 .hero__disc br + *,.hero__disc span br{line-height:2.2}
+
+/* 候選名單: one live ranking column (owner, 2026-09-16). */
+.bcard--live{max-width:760px}
+.bcard--live .rows--hot li{padding:14px 0}
+.fresh{margin-left:8px;font-family:var(--cond);font-weight:800;font-size:11px;letter-spacing:.1em;background:var(--gold-soft);color:var(--brand);padding:1px 6px;vertical-align:2px}
+.boardfoot{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.boardfoot .bnote{margin:0}

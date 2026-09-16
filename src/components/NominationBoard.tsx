@@ -11,11 +11,10 @@ import {
   ArrowDown,
   ArrowRight,
   ArrowUp,
-  Clock,
   Flame,
   Minus,
 } from "lucide-react";
-import { hhmm, isNameKey, minutesAgo } from "@/lib/format";
+import { hhmm } from "@/lib/format";
 import { getBrowserClient } from "@/lib/supabase-browser";
 import {
   EMPTY_BOARD,
@@ -107,7 +106,11 @@ export function BoardUpdated() {
   return <>{hhmm(useContext(BoardContext).board.updated_at) || "—"}</>;
 }
 
-/** 02 候選名單 (spec v6 §3.5): recent / hot / total, side by side. */
+/**
+ * 02 候選名單 — one live ranking (owner, 2026-09-16). Rank, company, a
+ * 關注度 bar, this hour's movement, and a 新 tag for companies that turned up
+ * in the last hour. No raw nomination counts (memo v4.0 §4).
+ */
 export default function NominationBoard({ stats }: { stats: Stats }) {
   const { board, now } = useContext(BoardContext);
 
@@ -125,72 +128,53 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
     );
   }
 
-  return (
-    <div className="boardgrid">
-      <article className="bcard">
-        <header>
-          <span className="k">RECENT</span>
-          <h3>
-            <Icon icon={Clock} />
-            最近新增
-          </h3>
-        </header>
-        <ol className="rows">
-          {board.recent.map((c) => (
-            <li key={c.domain}>
-              <Favicon domain={c.domain} name={c.display_name} />
-              <span className="co">
-                <b>{c.display_name}</b>
-                <small>{isNameKey(c.domain) ? "官網待確認" : c.domain}</small>
-              </span>
-              <span className="ago">
-                {minutesAgo(c.first_nominated_at, ref)}
-              </span>
-            </li>
-          ))}
-        </ol>
-      </article>
+  const freshAt = new Map(
+    board.recent.map((c) => [c.domain, c.first_nominated_at]),
+  );
+  const isFresh = (domain: string) => {
+    const t = freshAt.get(domain);
+    if (!t || !ref) return false;
+    return ref - new Date(t).getTime() < 60 * 60 * 1000;
+  };
 
-      <article className="bcard">
-        <header>
-          <span className="k">TRENDING</span>
-          <h3>
-            <Icon icon={Flame} />
-            熱門關注
-          </h3>
-        </header>
-        <ol className="rows rows--hot">
-          {board.hot.map((c, i) => (
-            <li key={c.domain}>
-              <span className="rk">{pad2(i + 1)}</span>
-              <Favicon domain={c.domain} name={c.display_name} />
-              <span className="co">
-                <b>{c.display_name}</b>
-                <span className="heat">
-                  <span className="heat__k">關注度</span>
-                  <span className="heat__bar">
-                    <i style={{ width: `${Math.round(c.share * 100)}%` }} />
-                  </span>
+  return (
+    <article className="bcard bcard--live">
+      <header>
+        <span className="k">LIVE RANKING</span>
+        <h3>
+          <Icon icon={Flame} />
+          即時榜單
+        </h3>
+      </header>
+      <ol className="rows rows--hot">
+        {board.hot.map((c, i) => (
+          <li key={c.domain}>
+            <span className="rk">{pad2(i + 1)}</span>
+            <Favicon domain={c.domain} name={c.display_name} />
+            <span className="co">
+              <b>
+                {c.display_name}
+                {isFresh(c.domain) ? <span className="fresh">新</span> : null}
+              </b>
+              <span className="heat">
+                <span className="heat__k">關注度</span>
+                <span className="heat__bar">
+                  <i style={{ width: `${Math.round(c.share * 100)}%` }} />
                 </span>
               </span>
-              <MoveMark m={c.movement} />
-            </li>
-          ))}
-        </ol>
-        <p className="bnote">排序每小時更新一次。</p>
-      </article>
-
-      <article className="bcard bcard--total">
-        <span className="k">TOTAL</span>
-        <h3>總候選公司數</h3>
-        <span className="total">
-          {board.total_companies}
-          <small>家</small>
+            </span>
+            <MoveMark m={c.movement} />
+          </li>
+        ))}
+      </ol>
+      <footer className="boardfoot">
+        <span className="bnote">
+          目前 {board.total_companies} 家公司被提名，排序每小時更新一次。
         </span>
         <NominateCta stats={stats} className="btn btn--red btn--sm">
           <Icon icon={ArrowRight} />
         </NominateCta>
-      </article>
-    </div>
+      </footer>
+    </article>
   );
 }
