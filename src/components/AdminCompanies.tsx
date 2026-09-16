@@ -163,8 +163,17 @@ export default function AdminCompanies({
     }
   }
 
+  /** Every manual edit freezes the list, so say so while it is still live. */
+  const freezeNote = locked ? "" : "目前名單還是即時計算的，這個動作會把它鎖定。\n";
+
   function removeFromList(domain: string) {
-    if (!window.confirm(`把 ${domain} 移出第二階段名單？`)) return;
+    const left = inList.length - 1;
+    if (
+      !window.confirm(
+        `${freezeNote}把 ${domain} 移出第二階段名單？移出後名單剩 ${left} 家。`,
+      )
+    )
+      return;
     void writeList(
       inList.filter((r) => r.domain !== domain).map((r) => r.domain),
       `已移出 ${domain}`,
@@ -173,6 +182,12 @@ export default function AdminCompanies({
 
   function addToList(domain: string) {
     if (!domain || inList.some((r) => r.domain === domain)) return;
+    if (
+      !window.confirm(
+        `${freezeNote}把 ${domain} 加入第二階段名單？加入後名單共 ${inList.length + 1} 家。`,
+      )
+    )
+      return;
     void writeList(
       [...inList.map((r) => r.domain), domain],
       `已加入 ${domain}`,
@@ -447,6 +462,12 @@ export default function AdminCompanies({
         排名依「提名人數」＝不重複的提名 Email 數，同分時先被提名的在前。
         同一個人重複提名同一家公司只算一次；「提名次數」是原始筆數，僅供參考。
       </p>
+      {locked && inList.length !== 10 ? (
+        <p className="note">
+          ⚠ 名單目前有 {inList.length} 家，但首頁 FAQ 寫的是「前 10
+          名會進入第二階段投票」。請調整名單或一併修改公開文案。
+        </p>
+      ) : null}
       <div className="arow">
         <span className={locked ? "abadge" : "note"}>
           {locked

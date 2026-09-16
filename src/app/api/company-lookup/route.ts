@@ -567,7 +567,9 @@ export async function GET(req: Request) {
     if (rateLimited(ip)) return empty;
 
     const data = await suggest(q);
-    cache.set(key, { at: now, data });
+    // Date.now() again, not `now`: suggest() may have spent seconds, and a
+    // stale timestamp would cut the negative TTL short.
+    cache.set(key, { at: Date.now(), data });
     if (cache.size > 500) {
       for (const [k, v] of cache)
         if (now - v.at > (v.data.length ? CACHE_MS : NEG_CACHE_MS))

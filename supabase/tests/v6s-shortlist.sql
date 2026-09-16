@@ -185,6 +185,35 @@ begin
   select count(*) into n from public.shortlist_domains();
   if n <> 10 then raise exception 'FAIL: fallback after clear offered %', n; end if;
 
+  -- A company nobody nominated cannot be put on the list: cast_ballot would
+  -- refuse it while /admin still showed 入選.
+  insert into public.companies (domain, display_name, status)
+  values ('qa-v6s-seed.example', 'QA 種子', 'active')
+  on conflict (domain) do nothing;
+  begin
+    perform public.admin_set_shortlist(array['qa-v6s-01.example', 'qa-v6s-seed.example']);
+    raise exception 'UNNOMINATED_ACCEPTED';
+  exception when others then
+    if sqlerrm <> '名單裡有尚未被提名、已隱藏或已合併的公司。' then
+      raise exception 'FAIL unnominated: %', sqlerrm;
+    end if;
+  end;
+
+  -- Merging a shortlisted company frees its slot instead of leaving a dead
+  -- one that shortlist_domains() offers and cast_ballot() then refuses.
+  perform public.admin_lock_shortlist(10);
+  if (select count(*) from public.shortlist) <> 10 then
+    raise exception 'FAIL: re-lock did not produce 10';
+  end if;
+  perform public.admin_merge_company('qa-v6s-10.example', 'qa-v6s-01.example');
+  if exists (select 1 from public.shortlist s where s.domain = 'qa-v6s-10.example') then
+    raise exception 'FAIL: the merged company kept its shortlist slot';
+  end if;
+  select count(*) into n from public.shortlist_domains();
+  if n <> 9 then
+    raise exception 'FAIL: shortlist_domains() after merge offered %, expected 9', n;
+  end if;
+
   raise exception 'ROLLBACK_OK';
 end;
 $$;
