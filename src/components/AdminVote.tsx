@@ -8,6 +8,12 @@ import type { AdminBallots, AdminVoteStat } from "@/lib/types";
 const PAGE = 50;
 const EXPORT_PAGE = 500;
 
+/**
+ * `admin_shortlist()` carries `shortlist_enforced` on every row (same trick
+ * as `locked`/`locked_at`), so any row works to read the current flag.
+ */
+type ShortlistFlagRow = { shortlist_enforced?: boolean };
+
 const fmt = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("zh-TW", { hour12: false }) : "";
 
@@ -29,6 +35,8 @@ export default function AdminVote({
   const [newTester, setNewTester] = useState("");
   const [msg, setMsg] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [shortlistEnforced, setShortlistEnforced] = useState(false);
+  const [shortlistBusy, setShortlistBusy] = useState(false);
 
   const loadStats = useCallback(async () => {
     const { data, error } = await supabase.rpc("admin_vote_stats");
@@ -59,10 +67,18 @@ export default function AdminVote({
     setTesters((data as string[] | null) ?? []);
   }, [supabase, onError]);
 
+  const loadShortlistFlag = useCallback(async () => {
+    const { data, error } = await supabase.rpc("admin_shortlist");
+    if (error) return onError(errText(error));
+    const rows = (data as ShortlistFlagRow[] | null) ?? [];
+    setShortlistEnforced(rows[0]?.shortlist_enforced ?? false);
+  }, [supabase, onError]);
+
   useEffect(() => {
     void loadStats();
     void loadTesters();
-  }, [loadStats, loadTesters]);
+    void loadShortlistFlag();
+  }, [loadStats, loadTesters, loadShortlistFlag]);
 
   useEffect(() => {
     void loadBallots(page);
@@ -100,6 +116,21 @@ export default function AdminVote({
     setMsg(hidden ? `理由 #${pickId} 已隱藏` : `理由 #${pickId} 已公開`);
     void loadBallots(page);
     void loadStats();
+  }
+
+  async function setShortlistEnforcedFlag(enabled: boolean) {
+    setShortlistBusy(true);
+    const { error } = await supabase.rpc("admin_set_shortlist_enforced", {
+      p_enabled: enabled,
+    });
+    setShortlistBusy(false);
+    if (error) return onError(errText(error));
+    setShortlistEnforced(enabled);
+    setMsg(
+      enabled
+        ? "已開啟：投票僅限第二階段名單前 10 名"
+        : "已關閉：第二階段名單只是參考，任何公司都能被投票（含尚未被提名的公司）",
+    );
   }
 
   async function tester(email: string, on: boolean) {
@@ -153,6 +184,22 @@ export default function AdminVote({
     <section>
       <h2>投票</h2>
       {msg ? <p className="note">{msg}</p> : null}
+
+      <h3 className="asub">第二階段名單的效力</h3>
+      <p className="note">
+        行銷手冊 v4.0 沒有規定第二階段一定要有候選名單，所以預設關閉：「第二階段名單」（見「公司與提名」分頁）只是即時排名前
+        10 名的參考名單，投票人仍可以投給名單外、甚至還沒被提名過的公司——選了就會同時建立這家公司與一筆提名。開啟後，投票會被限制在名單前
+        10 名之內。
+      </p>
+      <label className="radio">
+        <input
+          type="checkbox"
+          checked={shortlistEnforced}
+          disabled={shortlistBusy}
+          onChange={(e) => void setShortlistEnforcedFlag(e.target.checked)}
+        />
+        限制投票僅限第二階段名單前 10 名
+      </label>
 
       <h3 className="asub">公司票數（{stats.length}）</h3>
       <p className="note">

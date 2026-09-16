@@ -7,14 +7,14 @@ import {
   ListChecks,
   Mail,
   MessageSquareText,
-  Plus,
-  Search,
   SquareCheckBig,
   X,
 } from "lucide-react";
 import { dateRange, monthDay } from "@/lib/format";
 import { errText, getBrowserClient } from "@/lib/supabase-browser";
+import { clientId } from "@/lib/client-id";
 import type { MyVoteState, Stats } from "@/lib/types";
+import CompanyPicker, { type Picked } from "./CompanyPicker";
 import Favicon from "./Favicon";
 import Icon from "./Icon";
 import {
@@ -25,15 +25,23 @@ import {
 import ShareRow from "./ShareRow";
 import SiteChrome, { DISCLAIMER } from "./SiteChrome";
 
-const SEARCH_MS = 250;
 const MAX_PICKS = 3;
 const MIN_REASON = 10;
 const MAX_REASON = 50;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 type Candidate = { domain: string; display_name: string; aliases: string[] };
-type Slot = Candidate & { reason: string };
+type Slot = Candidate & {
+  reason: string;
+  name: string;
+  site: string | null;
+  isNew: boolean;
+};
 type DonePick = { domain: string; display_name: string; reason: string };
+
+/** Identity key for dedup/removal: a typed pick has no domain yet. */
+const slotKey = (s: { domain: string; display_name: string }) =>
+  s.domain || `typed:${s.display_name.toLowerCase()}`;
 
 /** Mirrors cast_ballot: trim, collapse whitespace, count code points. */
 const reasonLength = (s: string) =>
@@ -85,14 +93,11 @@ export default function BallotClient({
   const [emailOk, setEmailOk] = useState(false);
   const [checking, setChecking] = useState(false);
   const [done, setDone] = useState<DonePick[] | null>(null);
-  const [q, setQ] = useState("");
-  const [results, setResults] = useState<Candidate[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const checkedFor = useRef("");
   const picked = useRef(false);
-  const searchInput = useRef<HTMLInputElement>(null);
 
   const open = stats.phase === "vote";
 
@@ -100,23 +105,6 @@ export default function BallotClient({
     const saved = readSavedEmail();
     if (saved) setEmail(saved);
   }, []);
-
-  // Candidate search (debounced); an empty query lists the top 12.
-  useEffect(() => {
-    if (!open) return;
-    let live = true;
-    const t = setTimeout(
-      async () => {
-        const { data } = await supabase.rpc("vote_candidates", { q: q.trim() });
-        if (live) setResults((data as Candidate[] | null) ?? []);
-      },
-      q.trim() ? SEARCH_MS : 0,
-    );
-    return () => {
-      live = false;
-      clearTimeout(t);
-    };
-  }, [q, open, supabase]);
 
   // Preselect ?pick=<domain> once.
   useEffect(() => {
@@ -126,7 +114,21 @@ export default function BallotClient({
       const hit = ((data as Candidate[] | null) ?? []).find(
         (c) => c.domain === pick.toLowerCase(),
       );
-      if (hit) setSlots((s) => (s.length ? s : [{ ...hit, reason: "" }]));
+      if (hit) {
+        setSlots((s) =>
+          s.length
+            ? s
+            : [
+                {
+                  ...hit,
+                  reason: "",
+                  name: hit.display_name,
+                  site: null,
+                  isNew: false,
+                },
+              ],
+        );
+      }
     });
   }, [open, pick, supabase]);
 
@@ -160,15 +162,26 @@ export default function BallotClient({
     return true;
   }
 
-  function add(c: Candidate) {
+  function addPick(c: Picked) {
     setErr("");
-    if (slots.some((s) => s.domain === c.domain)) return;
+    const key = c.domain || `typed:${c.display_name.toLowerCase()}`;
+    if (slots.some((s) => slotKey(s) === key)) return;
     if (slots.length >= MAX_PICKS) {
       setErr("每張選票最多選 3 家公司，請先移除一家。");
       return;
     }
-    setSlots((s) => [...s, { ...c, reason: "" }]);
-    setQ("");
+    setSlots((s) => [
+      ...s,
+      {
+        domain: c.domain,
+        display_name: c.display_name,
+        aliases: c.aliases ?? [],
+        reason: "",
+        name: c.display_name,
+        site: c.site,
+        isNew: c.isNew,
+      },
+    ]);
   }
 
   async function submit(e: React.FormEvent) {
@@ -176,7 +189,6 @@ export default function BallotClient({
     if (!(await checkEmail())) return;
     if (slots.length === 0) {
       setErr("請至少選擇 1 家公司。");
-      searchInput.current?.focus();
       return;
     }
     if (slots.some((s) => {
@@ -197,11 +209,14 @@ export default function BallotClient({
     }
     const picks = slots.map((s) => ({
       domain: s.domain,
+      name: s.name,
+      site: s.site,
       reason: s.reason.trim().replace(/\s+/g, " "),
     }));
     const { error } = await supabase.rpc("cast_ballot", {
       p_email: email.trim(),
       p_picks: picks,
+      p_client_id: clientId(),
     });
     setBusy(false);
     if (error) {
@@ -278,7 +293,6 @@ export default function BallotClient({
       </div>
     );
   } else {
-    const chosen = new Set(slots.map((s) => s.domain));
     body = (
       <form className="flow ballotform" noValidate onSubmit={submit}>
         <div className="step">
@@ -321,51 +335,14 @@ export default function BallotClient({
 
         <div className={emailOk ? "step" : "step step--off"}>
           <span className="step__k">STEP B</span>
-          <div className="f">
-            <label htmlFor="ballot-search">
-              <Icon icon={Search} />
-              選擇公司（最多三家）
-            </label>
-            <input
-              id="ballot-search"
-              ref={searchInput}
-              value={q}
-              autoComplete="off"
-              maxLength={60}
-              placeholder="搜尋公司名稱或網域"
-              disabled={!emailOk}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
-          {emailOk ? (
-            results.length > 0 ? (
-              <ul className="cands" aria-label={q.trim() ? "搜尋結果" : "熱門候選"}>
-                {results.map((c) => {
-                  const on = chosen.has(c.domain);
-                  return (
-                    <li key={c.domain}>
-                      <button
-                        type="button"
-                        disabled={on || slots.length >= MAX_PICKS}
-                        onClick={() => add(c)}
-                        className={on ? "on" : undefined}
-                      >
-                        <Favicon domain={c.domain} name={c.display_name} size={24} />
-                        <span className="cands__n">{c.display_name}</span>
-                        {on ? (
-                          <SquareCheckBig size={16} strokeWidth={1.75} aria-hidden="true" />
-                        ) : (
-                          <Plus size={16} strokeWidth={1.75} aria-hidden="true" />
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : q.trim() ? (
-              <p className="fine">找不到這家公司。候選公司來自第一階段的提名。</p>
-            ) : null
-          ) : null}
+          <CompanyPicker
+            onPick={addPick}
+            disabled={!emailOk || slots.length >= MAX_PICKS}
+            pickedDomains={slots.map((s) => s.domain).filter(Boolean)}
+          />
+          <p className="fine">
+            找不到想投的公司嗎？直接搜尋、選「直接提名」就能同時提名它並投下這一票。
+          </p>
 
           <ol className="slots" aria-label="我的選票">
             {Array.from({ length: MAX_PICKS }, (_, i) => {
@@ -380,18 +357,24 @@ export default function BallotClient({
               }
               const n = reasonLength(s.reason);
               const bad = s.reason !== "" && (n < MIN_REASON || n > MAX_REASON);
+              const key = slotKey(s);
               return (
-                <li key={s.domain} className="slot">
+                <li key={key} className="slot">
                   <div className="slot__head">
                     <span className="slot__no">{i + 1}</span>
-                    <Favicon domain={s.domain} name={s.display_name} size={28} />
+                    <Favicon
+                      domain={s.domain || `name:${s.display_name}`}
+                      name={s.display_name}
+                      size={28}
+                    />
                     <b>{s.display_name}</b>
+                    {s.isNew ? <span className="abadge">新提名</span> : null}
                     <button
                       type="button"
                       className="slot__x"
                       aria-label={`移除 ${s.display_name}`}
                       onClick={() =>
-                        setSlots((all) => all.filter((x) => x.domain !== s.domain))
+                        setSlots((all) => all.filter((x) => slotKey(x) !== key))
                       }
                     >
                       <X size={18} strokeWidth={1.75} aria-hidden="true" />
@@ -406,7 +389,7 @@ export default function BallotClient({
                     onChange={(e) => {
                       const v = e.target.value;
                       setSlots((all) =>
-                        all.map((x) => (x.domain === s.domain ? { ...x, reason: v } : x)),
+                        all.map((x) => (slotKey(x) === key ? { ...x, reason: v } : x)),
                       );
                     }}
                   />

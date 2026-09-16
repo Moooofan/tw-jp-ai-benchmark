@@ -5,7 +5,7 @@ import { wordCloud } from "@/lib/wordcloud";
 
 // Board refreshes every 5 minutes; the rank snapshot behind it is hourly.
 // The vote-phase word cloud is cached with the page (spec v7b §1.6).
-export const revalidate = 300;
+export const revalidate = 30;
 
 export default async function Page({
   searchParams,

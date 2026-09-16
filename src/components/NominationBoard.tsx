@@ -74,6 +74,14 @@ export function BoardProvider({
   useEffect(() => {
     setNow(Date.now());
     const t = setInterval(() => setNow(Date.now()), 60_000);
+    // Live ranking (owner, 2026-09-16): re-read the board every 20 s.
+    const poll = setInterval(() => {
+      void getBrowserClient()
+        .rpc("board")
+        .then(({ data }) => {
+          if (data) setBoard({ ...EMPTY_BOARD, ...(data as Board) });
+        });
+    }, 20_000);
     let flagged = false;
     try {
       flagged = window.sessionStorage.getItem(JUST_NOMINATED_KEY) !== null;
@@ -88,7 +96,10 @@ export function BoardProvider({
           if (data) setBoard({ ...EMPTY_BOARD, ...(data as Board) });
         });
     }
-    return () => clearInterval(t);
+    return () => {
+      clearInterval(t);
+      clearInterval(poll);
+    };
   }, []);
 
   return (
@@ -169,7 +180,7 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
       </ol>
       <footer className="boardfoot">
         <span className="bnote">
-          目前 {board.total_companies} 家公司被提名，排序每小時更新一次。
+          目前 {board.total_companies} 家公司被提名，排名即時更新。
         </span>
         <NominateCta stats={stats} className="btn btn--red btn--sm">
           <Icon icon={ArrowRight} />

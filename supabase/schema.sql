@@ -1317,6 +1317,7 @@ declare
   v_latest timestamptz;
   v_prev timestamptz;
   v_top int;
+  v_live_top int;
 begin
   if coalesce((select max(taken_at) from public.board_snapshots), '-infinity'::timestamptz)
      < now() - interval '60 minutes' then
@@ -1324,6 +1325,13 @@ begin
   end if;
 
   select max(taken_at) into v_latest from public.board_snapshots;
+  select max(n) into v_live_top from (
+    select count(*) as n
+    from public.nominations nm
+    join public.companies c on c.domain = nm.domain
+    where c.status <> 'hidden' and c.merged_into is null
+    group by c.domain
+  ) t;
   select max(taken_at) into v_prev from public.board_snapshots where taken_at < v_latest;
   select max(s.n) into v_top
   from public.board_snapshots s
@@ -1361,20 +1369,25 @@ begin
                'movement', h.movement
              ) order by h.rank)
       from (
-        select s.domain, c.display_name, s.rank,
-               greatest(0.05, round(s.n::numeric * 20 / nullif(v_top, 0)) / 20)::float8 as share,
+        select l.domain, l.display_name, l.rank,
+               greatest(0.05, round(l.n::numeric * 20 / nullif(v_live_top, 0)) / 20)::float8 as share,
                case
-                 when v_prev is null or p.rank is null then 'new'
-                 when p.rank > s.rank then 'up'
-                 when p.rank < s.rank then 'down'
+                 when v_latest is null or p.rank is null then 'new'
+                 when p.rank > l.rank then 'up'
+                 when p.rank < l.rank then 'down'
                  else 'same'
                end as movement
-        from public.board_snapshots s
-        join public.companies c on c.domain = s.domain
-        left join public.board_snapshots p on p.taken_at = v_prev and p.domain = s.domain
-        where s.taken_at = v_latest and c.status <> 'hidden' and c.merged_into is null
-        order by s.rank
-        limit 8
+        from (
+          select c.domain, c.display_name, count(*)::int as n,
+                 (row_number() over (order by count(*) desc, min(nm.created_at) asc, c.domain))::int as rank
+          from public.nominations nm
+          join public.companies c on c.domain = nm.domain
+          where c.status <> 'hidden' and c.merged_into is null
+          group by c.domain, c.display_name
+        ) l
+        left join public.board_snapshots p on p.taken_at = v_latest and p.domain = l.domain
+        order by l.rank
+        limit 12
       ) h
     ), '[]'::json),
     'updated_at', now(),
@@ -3797,3 +3810,97 @@ as $$
   where c.status <> 'hidden';
 $$;
 -- END v6g
+
+-- BEGIN v6h
+-- Live ranking: the board ranks from nominations as they arrive; snapshots only
+-- drive the movement arrows (owner, 2026-09-16).
+create or replace function public.board()
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_latest timestamptz;
+  v_prev timestamptz;
+  v_top int;
+  v_live_top int;
+begin
+  if coalesce((select max(taken_at) from public.board_snapshots), '-infinity'::timestamptz)
+     < now() - interval '60 minutes' then
+    perform public.take_board_snapshot();
+  end if;
+
+  select max(taken_at) into v_latest from public.board_snapshots;
+  select max(n) into v_live_top from (
+    select count(*) as n
+    from public.nominations nm
+    join public.companies c on c.domain = nm.domain
+    where c.status <> 'hidden' and c.merged_into is null
+    group by c.domain
+  ) t;
+  select max(taken_at) into v_prev from public.board_snapshots where taken_at < v_latest;
+  select max(s.n) into v_top
+  from public.board_snapshots s
+  join public.companies c on c.domain = s.domain
+  where s.taken_at = v_latest and c.status <> 'hidden' and c.merged_into is null;
+
+  return json_build_object(
+    'total_companies', (
+      select count(distinct nm.domain)::int
+      from public.nominations nm
+      join public.companies c on c.domain = nm.domain
+      where c.status <> 'hidden' and c.merged_into is null
+    ),
+    'recent', coalesce((
+      select json_agg(json_build_object(
+               'domain', r.domain,
+               'display_name', r.display_name,
+               'first_nominated_at', r.first_nominated_at
+             ) order by r.first_nominated_at desc)
+      from (
+        select c.domain, c.display_name, min(nm.created_at) as first_nominated_at
+        from public.nominations nm
+        join public.companies c on c.domain = nm.domain
+        where c.status <> 'hidden' and c.merged_into is null
+        group by c.domain, c.display_name
+        order by min(nm.created_at) desc
+        limit 8
+      ) r
+    ), '[]'::json),
+    'hot', coalesce((
+      select json_agg(json_build_object(
+               'domain', h.domain,
+               'display_name', h.display_name,
+               'share', h.share,
+               'movement', h.movement
+             ) order by h.rank)
+      from (
+        select l.domain, l.display_name, l.rank,
+               greatest(0.05, round(l.n::numeric * 20 / nullif(v_live_top, 0)) / 20)::float8 as share,
+               case
+                 when v_latest is null or p.rank is null then 'new'
+                 when p.rank > l.rank then 'up'
+                 when p.rank < l.rank then 'down'
+                 else 'same'
+               end as movement
+        from (
+          select c.domain, c.display_name, count(*)::int as n,
+                 (row_number() over (order by count(*) desc, min(nm.created_at) asc, c.domain))::int as rank
+          from public.nominations nm
+          join public.companies c on c.domain = nm.domain
+          where c.status <> 'hidden' and c.merged_into is null
+          group by c.domain, c.display_name
+        ) l
+        left join public.board_snapshots p on p.taken_at = v_latest and p.domain = l.domain
+        order by l.rank
+        limit 12
+      ) h
+    ), '[]'::json),
+    'updated_at', now(),
+    'snapshot_at', v_latest
+  );
+end;
+$$;
+-- END v6h
