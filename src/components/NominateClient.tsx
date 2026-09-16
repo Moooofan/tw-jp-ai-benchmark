@@ -298,6 +298,30 @@ export default function NominateClient({
             {len} / {REASON_MAX}
           </small>
         </div>
+        <div className="f">
+          <label htmlFor="email2">
+            <Icon icon={Mail} />
+            你的 Email
+          </label>
+          <input
+            id="email2"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            placeholder="name@company.com"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setEmailErr("");
+              setErr("");
+            }}
+            onBlur={() => {
+              if (!EMAIL_RE.test(email.trim())) setEmailErr(EMAIL_ERR);
+            }}
+          />
+          <p className="fine">只用來聯繫與避免重複，不會公開。</p>
+          {emailErr ? <p className="err">{emailErr}</p> : null}
+        </div>
         {err ? <p className="err">{err}</p> : null}
         <div className="after">
           <button
