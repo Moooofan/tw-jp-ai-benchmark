@@ -3,10 +3,11 @@ import {
   Info,
 } from "lucide-react";
 import { dateRange } from "@/lib/format";
-import type { Stats } from "@/lib/types";
+import type { Board, Stats } from "@/lib/types";
 import BackgroundBand from "./BackgroundBand";
 import Band from "./Band";
 import Icon from "./Icon";
+import NominationBoard, { BoardProvider } from "./NominationBoard";
 import SiteChrome, { DISCLAIMER, NominateCta } from "./SiteChrome";
 
 
@@ -38,11 +39,17 @@ const faqItems = (stats: Stats): { q: string; a: string }[] => [
  * `/` in pre / nominate (spec v6 §3): one question, a frictionless nomination entry,
  * nothing about what happens next. Server component.
  */
-export default function HomePhase1({ stats }: { stats: Stats }) {
+export default function HomePhase1({
+  stats,
+  board,
+}: {
+  stats: Stats;
+  board: Board;
+}) {
   const open = stats.phase === "nominate";
   return (
     <SiteChrome stats={stats} home>
-      <>
+      <BoardProvider board={board}>
         <div className="hero hero--p1">
           <div className="hero__ghost" aria-hidden="true">
             TAIWAN → JAPAN
@@ -87,6 +94,13 @@ export default function HomePhase1({ stats }: { stats: Stats }) {
         <div className="wrap">
           <BackgroundBand ctaHref={open ? "/nominate" : "#faq"} />
 
+          <Band id="board" chip="Nomination Board" title="候選名單">
+            <p className="notice">
+              這是提名名單，不是正式投票結果。同一家公司被提名多次，只代表它已被提名。
+            </p>
+            <NominationBoard stats={stats} />
+          </Band>
+
           <Band id="faq" chip="FAQ" title="常見問題">
             <div className="acc">
               {faqItems(stats).map((f) => (
@@ -98,7 +112,7 @@ export default function HomePhase1({ stats }: { stats: Stats }) {
             </div>
           </Band>
         </div>
-      </>
+      </BoardProvider>
     </SiteChrome>
   );
 }

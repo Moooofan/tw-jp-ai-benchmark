@@ -15,10 +15,10 @@ export default async function Page({
   const sp = searchParams ? await searchParams : undefined;
   const loaded = await loadSiteData();
   const preview = previewFromQuery(sp);
-  const { posts, finalists } = loaded;
+  const { posts, finalists, board } = loaded;
   const stats = preview ? { ...loaded.stats, phase: preview } : loaded.stats;
   if (isPhaseOne(stats.phase)) {
-    return <HomePhase1 stats={phaseOneStats(stats)} />;
+    return <HomePhase1 stats={phaseOneStats(stats)} board={board} />;
   }
   if (isVotePhase(stats.phase)) {
     // Community Intelligence Page (spec v7b §1, §4).

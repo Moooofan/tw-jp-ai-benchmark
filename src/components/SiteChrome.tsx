@@ -104,6 +104,7 @@ export default function SiteChrome({
             <Link href="/#background">前情提要</Link>
             {phaseOne ? (
               <>
+                <Link href="/#board">候選名單</Link>
                 <Link href="/#faq">常見問題</Link>
               </>
             ) : votePhase ? (
