@@ -488,7 +488,7 @@ export default function NominateClient({
           <ul className="steps-note">
             <li>中文、英文、品牌名都可以，找不到就選「直接提名」。</li>
             <li>官方網站是選填，知道的話填一下，能幫我們更快辨識。</li>
-            <li>提名不是投票。提名次數只決定哪 10 家進入第二階段，正式票數第二階段才開始計算。</li>
+            <li>提名同一家公司 1 次或很多次，都只代表這家公司已被提名。</li>
           </ul>
         </div>
       </div>

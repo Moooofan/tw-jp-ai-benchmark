@@ -21,15 +21,15 @@ const faqItems = (stats: Stats): { q: string; a: string }[] => [
   },
   {
     q: "同一家公司被提名很多次，會比較有利嗎？",
-    a: "提名不是投票，所以不會變成票數。但提名次數越多的公司排名越前面，提名期結束後，前 10 名會進入第二階段，正式票數到那時才開始計算。",
+    a: "不會。被提名一次或很多次，都只代表這家公司已被提名。",
   },
   {
     q: "什麼樣的公司可以被提名？",
     a: "台灣新創，且過去五年在日本市場有公開可查的發展。",
   },
   {
-    q: "活動時間怎麼安排？",
-    a: `提名期間 ${dateRange(stats.nominate_open, stats.nominate_close)}；投票期間 ${dateRange(stats.vote_open, stats.vote_close)}；結果公布 ${stats.results_label}。`,
+    q: "提名到什麼時候？",
+    a: `提名期間 ${dateRange(stats.nominate_open, stats.nominate_close)}。`,
   },
 ];
 
