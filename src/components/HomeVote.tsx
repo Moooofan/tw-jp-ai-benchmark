@@ -16,9 +16,12 @@ import {
   BoardProvider,
   Leaderboard,
   ReasonTabs,
+  ResonanceAndTrend,
   VoteStatStrip,
 } from "./CommunityBoard";
+import type { CloudWord } from "@/lib/wordcloud";
 import Icon from "./Icon";
+import KeywordStrip from "./KeywordStrip";
 import { ReactionProvider } from "./Reactions";
 import SiteChrome, { DISCLAIMER } from "./SiteChrome";
 
@@ -71,9 +74,11 @@ const pad2 = (n: number) => String(n).padStart(2, "0");
 export default function HomeVote({
   stats,
   board,
+  cloud,
 }: {
   stats: Stats;
   board: VoteBoard;
+  cloud: CloudWord[];
 }) {
   const closed = stats.phase === "closed";
   const label = stats.results_label.trim();
@@ -146,9 +151,18 @@ export default function HomeVote({
 
             <Band id="reasons" chip="02 · Why People Vote" title="熱門理由">
               <ReasonTabs />
+              <KeywordStrip words={cloud} />
             </Band>
 
-            <Band id="rules" chip="03 · Rules" title="投票規則">
+            <Band
+              id="resonance"
+              chip="03 · Community Resonance"
+              title="社群共鳴與趨勢"
+            >
+              <ResonanceAndTrend />
+            </Band>
+
+            <Band id="rules" chip="04 · Rules" title="投票規則">
               <div className="grid g4">
                 {RULES.map((r, i) => (
                   <article className="card" key={r.h}>
@@ -180,7 +194,7 @@ export default function HomeVote({
               </div>
             </section>
 
-            <Band id="faq" chip="05 · FAQ" title="常見問題">
+            <Band id="faq" chip="06 · FAQ" title="常見問題">
               <div className="acc">
                 {FAQ.map((f) => (
                   <details key={f.q}>

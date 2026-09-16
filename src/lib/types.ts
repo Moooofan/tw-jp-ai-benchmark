@@ -239,6 +239,8 @@ export type VoteBoard = {
   total_votes: number;
   total_reasons: number;
   total_voters: number;
+  total_likes: number;
+  total_dislikes: number;
   updated_at: string | null;
   leaderboard: LeaderboardRow[];
   hot_reasons: ReasonCard[];
@@ -250,6 +252,8 @@ export const EMPTY_VOTE_BOARD: VoteBoard = {
   total_votes: 0,
   total_reasons: 0,
   total_voters: 0,
+  total_likes: 0,
+  total_dislikes: 0,
   updated_at: null,
   leaderboard: [],
   hot_reasons: [],

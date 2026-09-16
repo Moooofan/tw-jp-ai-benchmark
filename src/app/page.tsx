@@ -1,6 +1,7 @@
 import HomePhase1 from "@/components/HomePhase1";
 import { isPhaseOne, isVotePhase, phaseOneStats, previewFromQuery, publicStats, reveal } from "@/lib/phase";
-import { loadSiteData, loadVoteBoard } from "@/lib/site-data";
+import { loadReasonCorpus, loadSiteData, loadVoteBoard } from "@/lib/site-data";
+import { wordCloud } from "@/lib/wordcloud";
 
 // Board refreshes every 5 minutes; the rank snapshot behind it is hourly.
 // The vote-phase word cloud is cached with the page (spec v7b §1.6).
@@ -22,8 +23,17 @@ export default async function Page({
   if (isVotePhase(stats.phase)) {
     // Community Intelligence Page (spec v7b §1, §4).
     const { default: HomeVote } = await import("@/components/HomeVote");
-    const board = await loadVoteBoard();
-    return <HomeVote stats={publicStats(stats)} board={board} />;
+    const [board, corpus] = await Promise.all([
+      loadVoteBoard(),
+      loadReasonCorpus(null),
+    ]);
+    return (
+      <HomeVote
+        stats={publicStats(stats)}
+        board={board}
+        cloud={wordCloud(corpus).slice(0, 16)}
+      />
+    );
   }
   // Loaded only for results, so the later-phase copy is not part of the
   // Phase 1 or vote bundles.

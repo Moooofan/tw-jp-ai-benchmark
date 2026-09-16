@@ -194,3 +194,65 @@ export function ReasonTabs() {
     </>
   );
 }
+
+/**
+ * 社群共鳴與趨勢 (memo v4.0 p.3: Community Resonance、趨勢). Reactions on the
+ * reasons, and how many ballots and reasons arrived each day.
+ */
+export function ResonanceAndTrend() {
+  const board = useContext(BoardCtx);
+  const likes = board.total_likes;
+  const dislikes = board.total_dislikes;
+  const all = likes + dislikes;
+  const share = all > 0 ? Math.round((likes / all) * 100) : 0;
+  const net = likes - dislikes;
+  const peak = board.trend.reduce((m, d) => Math.max(m, d.ballots, d.reasons), 0);
+
+  if (all === 0 && board.trend.length === 0) {
+    return <p className="empty">投票開始後，這裡會顯示大家的推噓與每日趨勢。</p>;
+  }
+
+  return (
+    <div className="reso">
+      <div className="reso__bar" aria-hidden="true">
+        <i className="reso__up" style={{ width: `${share}%` }} />
+        <i className="reso__down" style={{ width: `${100 - share}%` }} />
+      </div>
+      <p className="reso__k">
+        推 <b className="num">{nf.format(likes)}</b> · 噓{" "}
+        <b className="num">{nf.format(dislikes)}</b> · 淨值{" "}
+        <b className="num">
+          {net > 0 ? "+" : ""}
+          {nf.format(net)}
+        </b>
+        （每淨 10 個影響該公司 1 票）
+      </p>
+
+      {board.trend.length > 0 ? (
+        <div className="trend">
+          {board.trend.map((d) => (
+            <div className="trend__day" key={d.day}>
+              <span className="trend__bars">
+                <i
+                  className="trend__b trend__b--v"
+                  style={{ height: `${peak ? (d.ballots / peak) * 100 : 0}%` }}
+                  title={`${d.day}：${d.ballots} 票`}
+                />
+                <i
+                  className="trend__b trend__b--r"
+                  style={{ height: `${peak ? (d.reasons / peak) * 100 : 0}%` }}
+                  title={`${d.day}：${d.reasons} 則理由`}
+                />
+              </span>
+              <span className="trend__d">{d.day.slice(5).replace("-", "/")}</span>
+            </div>
+          ))}
+          <p className="trend__legend">
+            <span className="trend__key trend__key--v" /> 每日票數
+            <span className="trend__key trend__key--r" /> 每日理由數
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}

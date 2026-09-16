@@ -2033,6 +2033,15 @@ begin
       'total_votes', coalesce((select sum(cv.votes) from cv), 0)::int,
       'total_reasons', coalesce((select sum(cv.reasons) from cv), 0)::int,
       'total_voters', (select count(distinct b.email_key) from public.ballots b where not b.voided)::int,
+      -- v7e: Community Resonance — how much the crowd pushed back on the reasons.
+      'total_likes', (select count(*) from public.reason_reactions rx
+                        join public.ballot_picks bp on bp.id = rx.pick_id
+                        join public.ballots bl on bl.id = bp.ballot_id
+                       where rx.value = 1 and not bp.hidden and not bl.voided)::int,
+      'total_dislikes', (select count(*) from public.reason_reactions rx
+                        join public.ballot_picks bp on bp.id = rx.pick_id
+                        join public.ballots bl on bl.id = bp.ballot_id
+                       where rx.value = -1 and not bp.hidden and not bl.voided)::int,
       'updated_at', now(),
       'leaderboard', coalesce((
         select json_agg(json_build_object(
@@ -4322,3 +4331,120 @@ as $$
 $$;
 grant execute on function public.vote_candidates(text) to anon, authenticated;
 -- END v7d
+
+-- BEGIN v7e
+-- vote_board also reports the like/dislike totals behind Community Resonance.
+create or replace function public.vote_board()
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_base timestamptz;
+  v_today date := (now() at time zone 'Asia/Taipei')::date;
+  v_open date;
+  v_close date;
+begin
+  if public.effective_phase() = 'vote'
+     and coalesce((select max(ls.taken_at) from public.leaderboard_snapshots ls), '-infinity'::timestamptz)
+         < now() - interval '60 minutes' then
+    perform public.take_leaderboard_snapshot();
+  end if;
+
+  select max(ls.taken_at) into v_base
+  from public.leaderboard_snapshots ls
+  where ls.taken_at <= now() - interval '60 minutes';
+
+  select (s.vote_open at time zone 'Asia/Taipei')::date,
+         (s.vote_close at time zone 'Asia/Taipei')::date
+  into v_open, v_close
+  from public.settings s where s.id = 1;
+
+  return (
+    with cv as (
+      select * from public.company_votes() x where x.is_candidate
+    ),
+    rr as (
+      select * from public.reason_rows()
+    )
+    select json_build_object(
+      'total_votes', coalesce((select sum(cv.votes) from cv), 0)::int,
+      'total_reasons', coalesce((select sum(cv.reasons) from cv), 0)::int,
+      'total_voters', (select count(distinct b.email_key) from public.ballots b where not b.voided)::int,
+      -- v7e: Community Resonance — how much the crowd pushed back on the reasons.
+      'total_likes', (select count(*) from public.reason_reactions rx
+                        join public.ballot_picks bp on bp.id = rx.pick_id
+                        join public.ballots bl on bl.id = bp.ballot_id
+                       where rx.value = 1 and not bp.hidden and not bl.voided)::int,
+      'total_dislikes', (select count(*) from public.reason_reactions rx
+                        join public.ballot_picks bp on bp.id = rx.pick_id
+                        join public.ballots bl on bl.id = bp.ballot_id
+                       where rx.value = -1 and not bp.hidden and not bl.voided)::int,
+      'updated_at', now(),
+      'leaderboard', coalesce((
+        select json_agg(json_build_object(
+                 'rank', l.rank,
+                 'domain', l.domain,
+                 'display_name', l.display_name,
+                 'votes', l.votes,
+                 'reasons', l.reasons,
+                 'movement', l.movement) order by l.rank)
+        from (
+          select cv.rank, cv.domain, cv.display_name, cv.votes, cv.reasons,
+                 case
+                   when v_base is null or ls.rank is null then 'new'
+                   when ls.rank > cv.rank then 'up'
+                   when ls.rank < cv.rank then 'down'
+                   else 'same'
+                 end as movement
+          from cv
+          left join public.leaderboard_snapshots ls on ls.taken_at = v_base and ls.domain = cv.domain
+          order by cv.rank
+          limit 30
+        ) l
+      ), '[]'::json),
+      'hot_reasons', coalesce((
+        select json_agg(json_build_object(
+                 'pick_id', h.pick_id, 'domain', h.domain, 'display_name', h.display_name,
+                 'reason', h.reason, 'likes', h.likes, 'dislikes', h.dislikes)
+                 order by h.likes - h.dislikes desc, h.created_at desc, h.pick_id desc)
+        from (
+          select * from rr
+          order by rr.likes - rr.dislikes desc, rr.created_at desc, rr.pick_id desc
+          limit 12
+        ) h
+      ), '[]'::json),
+      'latest_reasons', coalesce((
+        select json_agg(json_build_object(
+                 'pick_id', h.pick_id, 'domain', h.domain, 'display_name', h.display_name,
+                 'reason', h.reason, 'likes', h.likes, 'dislikes', h.dislikes)
+                 order by h.created_at desc, h.pick_id desc)
+        from (
+          select * from rr order by rr.created_at desc, rr.pick_id desc limit 12
+        ) h
+      ), '[]'::json),
+      'trend', coalesce((
+        select json_agg(json_build_object(
+                 'day', to_char(d.day, 'YYYY-MM-DD'),
+                 'ballots', (select count(*) from public.ballots b
+                             where b.ballot_date = d.day and not b.voided)::int,
+                 'reasons', (select count(*) from public.ballot_picks bp
+                             join public.ballots b on b.id = bp.ballot_id
+                             join public.companies co on co.domain = bp.domain
+                             where b.ballot_date = d.day and not b.voided and not bp.hidden
+                               and co.status <> 'hidden' and co.merged_into is null)::int)
+                 order by d.day)
+        from (
+          select g::date as day
+          from generate_series(v_open::timestamp, least(v_close, v_today)::timestamp, interval '1 day') g
+          where v_open is not null and v_close is not null
+        ) d
+      ), '[]'::json)
+    )
+  );
+end;
+$$;
+grant execute on function public.vote_board() to anon, authenticated;
+-- END v7e
