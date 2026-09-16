@@ -737,3 +737,20 @@ button.btn--done{background:var(--ink)}
 .trend__key{display:inline-block;width:12px;height:12px;margin-left:10px}
 .trend__key--v{background:var(--brand)}
 .trend__key--r{background:var(--secondary)}
+
+/* Community Resonance detail (memo v4.0 p.3) */
+.resoh{font-weight:900;font-size:17px;color:var(--ink);margin:0 0 12px}
+.resolist{margin-top:28px;padding-top:22px;border-top:1px solid var(--line)}
+.resolist ol{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.resolist li{display:grid;grid-template-columns:minmax(120px,1.4fr) minmax(0,2fr) auto;gap:14px;align-items:center;font-size:14px}
+.resolist__co{font-weight:700;color:var(--ink)}
+.resolist__bar{display:flex;height:10px;background:var(--ground);overflow:hidden}
+.resolist__n{color:var(--muted);white-space:nowrap;font-size:13px}
+@media (max-width:860px){.resolist li{grid-template-columns:minmax(0,1fr);gap:6px}.resolist__n{white-space:normal}}
+.divis{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.divis li{display:grid;grid-template-columns:minmax(90px,auto) minmax(0,1fr) auto;gap:14px;align-items:baseline;padding:12px 0;border-bottom:1px solid var(--line);font-size:14px}
+.divis li:last-child{border-bottom:0}
+.divis__co{font-family:var(--cond);font-weight:700;letter-spacing:.06em;color:var(--brand)}
+.divis__r{color:var(--ink);font-weight:500}
+.divis__n{color:var(--muted);white-space:nowrap;font-size:13px}
+@media (max-width:860px){.divis li{grid-template-columns:minmax(0,1fr);gap:4px}}

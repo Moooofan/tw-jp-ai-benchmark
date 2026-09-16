@@ -246,6 +246,14 @@ export type VoteBoard = {
   hot_reasons: ReasonCard[];
   latest_reasons: ReasonCard[];
   trend: { day: string; ballots: number; reasons: number }[];
+  resonance: {
+    domain: string;
+    display_name: string;
+    likes: number;
+    dislikes: number;
+    net: number;
+  }[];
+  divisive: ReasonCard[];
 };
 
 export const EMPTY_VOTE_BOARD: VoteBoard = {
@@ -259,6 +267,8 @@ export const EMPTY_VOTE_BOARD: VoteBoard = {
   hot_reasons: [],
   latest_reasons: [],
   trend: [],
+  resonance: [],
+  divisive: [],
 };
 
 /** What `company_detail` returns (null when the domain is not a candidate). */

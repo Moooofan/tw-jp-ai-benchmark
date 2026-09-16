@@ -206,6 +206,7 @@ export function ResonanceAndTrend() {
   const all = likes + dislikes;
   const share = all > 0 ? Math.round((likes / all) * 100) : 0;
   const net = likes - dislikes;
+  const top = board.resonance[0];
   const peak = board.trend.reduce((m, d) => Math.max(m, d.ballots, d.reasons), 0);
 
   if (all === 0 && board.trend.length === 0) {
@@ -219,7 +220,7 @@ export function ResonanceAndTrend() {
         <i className="reso__down" style={{ width: `${100 - share}%` }} />
       </div>
       <p className="reso__k">
-        推 <b className="num">{nf.format(likes)}</b> · 噓{" "}
+        全站推 <b className="num">{nf.format(likes)}</b> · 噓{" "}
         <b className="num">{nf.format(dislikes)}</b> · 淨值{" "}
         <b className="num">
           {net > 0 ? "+" : ""}
@@ -227,6 +228,55 @@ export function ResonanceAndTrend() {
         </b>
         （每淨 10 個影響該公司 1 票）
       </p>
+
+      {board.resonance.length > 0 ? (
+        <div className="resolist">
+          <h3 className="resoh">哪些公司最有共鳴</h3>
+          <ol>
+            {board.resonance.map((c) => {
+              const t = c.likes + c.dislikes;
+              const up = t > 0 ? Math.round((c.likes / t) * 100) : 0;
+              return (
+                <li key={c.domain}>
+                  <span className="resolist__co">{c.display_name}</span>
+                  <span className="resolist__bar" aria-hidden="true">
+                    <i className="reso__up" style={{ width: `${up}%` }} />
+                    <i className="reso__down" style={{ width: `${100 - up}%` }} />
+                  </span>
+                  <span className="resolist__n num">
+                    推 {nf.format(c.likes)} · 噓 {nf.format(c.dislikes)} · 淨{" "}
+                    {c.net > 0 ? "+" : ""}
+                    {nf.format(c.net)}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+          {top ? (
+            <p className="bnote">
+              目前最有共鳴的是 {top.display_name}，淨值 {top.net > 0 ? "+" : ""}
+              {nf.format(top.net)}，換算約 {Math.trunc(top.net / 10)} 票。
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {board.divisive.length > 0 ? (
+        <div className="resolist">
+          <h3 className="resoh">意見最分歧的理由</h3>
+          <ul className="divis">
+            {board.divisive.map((r) => (
+              <li key={r.pick_id}>
+                <span className="divis__co">{r.display_name}</span>
+                <span className="divis__r">{r.reason}</span>
+                <span className="divis__n num">
+                  推 {nf.format(r.likes)} · 噓 {nf.format(r.dislikes)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {board.trend.length > 0 ? (
         <div className="trend">
