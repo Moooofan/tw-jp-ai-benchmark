@@ -4171,8 +4171,14 @@ as $$
   )
   select cv.domain, cv.display_name, cv.aliases
   from public.company_votes() cv, t
-  where cv.is_candidate
-    and (not public.shortlist_is_enforced() or exists (select 1 from public.shortlist_domains() sd where sd.domain = cv.domain))
+  -- v7d: with the gate off (memo v4.0's default) a voter may pick ANY company
+  -- we know of, seeds included, exactly like nominating; the gate narrows the
+  -- list to the shortlist when an admin turns it on.
+  where (
+      case when public.shortlist_is_enforced()
+        then exists (select 1 from public.shortlist_domains() sd where sd.domain = cv.domain)
+        else true
+      end)
     and char_length(t.k) <= 80
     and (
       t.k = ''
@@ -4274,3 +4280,45 @@ revoke all on function public.admin_shortlist() from public, anon, authenticated
 grant execute on function public.admin_shortlist() to authenticated;
 
 -- END v7c
+
+-- BEGIN v7d
+-- Ballot search covers every known company while the shortlist gate is off.
+create or replace function public.vote_candidates(q text)
+returns table (domain text, display_name text, aliases text[])
+language sql
+stable
+security definer
+set search_path = public, extensions
+as $$
+  with t as (
+    select lower(btrim(coalesce(q, ''))) as k,
+           replace(replace(replace(lower(btrim(coalesce(q, ''))), '\', '\\'), '%', '\%'), '_', '\_') as p
+  )
+  select cv.domain, cv.display_name, cv.aliases
+  from public.company_votes() cv, t
+  -- v7d: with the gate off (memo v4.0's default) a voter may pick ANY company
+  -- we know of, seeds included, exactly like nominating; the gate narrows the
+  -- list to the shortlist when an admin turns it on.
+  where (
+      case when public.shortlist_is_enforced()
+        then exists (select 1 from public.shortlist_domains() sd where sd.domain = cv.domain)
+        else true
+      end)
+    and char_length(t.k) <= 80
+    and (
+      t.k = ''
+      or lower(cv.display_name) like '%' || t.p || '%'
+      or exists (select 1 from unnest(cv.aliases) a where lower(a) like '%' || t.p || '%')
+      or cv.domain like t.p || '%'
+      or (char_length(t.k) >= 3 and similarity(lower(cv.display_name), t.k) > 0.3)
+    )
+  order by
+    (t.k <> '' and (lower(cv.display_name) = t.k
+      or exists (select 1 from unnest(cv.aliases) a where lower(a) = t.k))) desc,
+    (t.k <> '' and lower(cv.display_name) like t.p || '%') desc,
+    case when t.k <> '' then similarity(lower(cv.display_name), t.k) else 0 end desc,
+    cv.rank
+  limit 12;
+$$;
+grant execute on function public.vote_candidates(text) to anon, authenticated;
+-- END v7d
