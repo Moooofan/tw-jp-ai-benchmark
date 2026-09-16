@@ -65,6 +65,32 @@ It asserts that anonymous callers can read `posts_public`, `finalists_public`,
 cannot touch `posts`, `finalists`, `votes`, `admins`, `reports`, `final_votes`,
 `participants`, or any write RPC.
 
+### What v6s added — the Phase 2 shortlist
+
+Only the **top 10 companies advance to Phase 2 voting**. Rank is the number of
+**distinct nominator emails** (`nomination_rank().voters`), so five nominations
+from one person count once; ties break on the earliest nomination. The raw row
+count stays visible in `/admin` as 提名次數.
+
+```bash
+node scripts/apply-sql.mjs v6s   # idempotent, safe to run twice
+```
+
+The list is **live** until someone locks it: while `public.shortlist` is empty,
+`vote_candidates()` and `cast_ballot()` accept the live top 10 of the moment, so
+the site still opens with a sane ballot if nobody locks anything. In
+`/admin` → 公司與提名 → 第二階段名單:
+
+- **鎖定前 10 名** freezes today's ranking into `public.shortlist`
+  (`admin_lock_shortlist(10)`). Do this once nominations close.
+- **加入 / 移出** rewrites the whole list by hand (`admin_set_shortlist()`),
+  ranks following the order shown.
+- **解除鎖定** empties the table and hands Phase 2 back to the live top 10.
+
+A ballot for a company outside the list is refused with
+「這家公司不在第二階段的前 10 名名單中。」 The `shortlist` table itself has no
+grant and no policy: it is reachable only through the admin RPCs.
+
 ### What v2 added
 
 - `posts.company_en`, `posts.url`; `reason` is now 60–200 characters.

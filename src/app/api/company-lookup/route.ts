@@ -45,8 +45,30 @@ const MAX_SUGGESTIONS = 6;
 const SEARCH_LIMIT = 8;
 const UPSTREAM_MS = 4_000;
 const CACHE_MS = 10 * 60_000;
-const RATE_MAX = 30; // requests …
+/**
+ * A result we could not fill is kept for 30 s, not 10 minutes: a single slow
+ * cold start used to blank a company for the rest of the lambda's life.
+ */
+const NEG_CACHE_MS = 30_000;
+/**
+ * Per-IP budget. This used to be 30/minute, which sounds generous and is not:
+ * the suggestion box debounces at 250 ms, so typing one company name spends
+ * 4–6 requests and /nominate and /vote share the bucket. Three or four
+ * searches in a minute exhausted it and every later lookup answered
+ * `{suggestions: []}` — indistinguishable, to the user, from "no such
+ * company". Measured in production on 2026-09-16: requests 1–26 returned
+ * results, 27–40 returned nothing, and it healed by itself 60 s later.
+ */
+const RATE_MAX = 120; // requests …
 const RATE_WINDOW_MS = 60_000; // … per minute, per IP
+/**
+ * Whole-route wall clock. The Vercel function runs in iad1 (US-East) while
+ * the sites it probes are in Taiwan, so a cold pass measured 3.4–4.5 s
+ * against a 3 s budget and silently returned a short list. The budget is now
+ * generous enough for that round trip and still safely under the 10 s
+ * function limit, Wikidata's own two calls included.
+ */
+const TOTAL_MS = 8_000;
 
 /**
  * P31 (instance of) values that mark a company, derived by reading what
@@ -264,7 +286,9 @@ const WEB_TIMEOUT_MS = 3_000;
  * of those would add 6 s to a suggestion box. Measured worst case is now
  * Wikidata (~0.8 s) + this budget.
  */
-const WEB_PASS_MS = 3_000;
+const WEB_PASS_MS = 4_500;
+/** Below this much time left, a probe wave cannot finish; don't start one. */
+const WEB_MIN_BUDGET_MS = 1_000;
 const WEB_MAX_BYTES = 64 * 1024;
 /** Sites hide behind a WAF for unknown agents; ask as an ordinary browser. */
 const BROWSER_UA =
@@ -469,9 +493,10 @@ async function probeAll(
   list: string[],
   slug: string,
   typed: string,
+  budgetMs: number,
 ): Promise<ExternalCompany[]> {
   const found: (ExternalCompany | null)[] = new Array(list.length).fill(null);
-  const deadline = AbortSignal.timeout(WEB_PASS_MS);
+  const deadline = AbortSignal.timeout(budgetMs);
   let next = 0;
   const worker = async () => {
     for (;;) {
@@ -488,13 +513,18 @@ async function probeAll(
 
 /** Wikidata first; guessed-and-verified domains only fill the gap. */
 async function suggest(q: string): Promise<ExternalCompany[]> {
+  const started = Date.now();
   const base = await lookup(q);
   if (base.length >= WEB_MIN_WIKIDATA || !ASCII_Q.test(q)) return base;
 
   try {
     const { slug, hyphen } = slugsOf(q);
     if (slug.length < 2) return base;
-    const web = await probeAll(candidates(slug, hyphen), slug, q);
+    // Wikidata has already spent part of the route's wall clock; the guessing
+    // pass gets whatever is left of it, capped at WEB_PASS_MS.
+    const budget = Math.min(WEB_PASS_MS, TOTAL_MS - (Date.now() - started));
+    if (budget < WEB_MIN_BUDGET_MS) return base;
+    const web = await probeAll(candidates(slug, hyphen), slug, q, budget);
     const seen = new Set(base.map((c) => c.domain));
     const extra = web.filter((c) =>
       seen.has(c.domain) ? false : seen.add(c.domain),
@@ -517,26 +547,31 @@ export async function GET(req: Request) {
       .slice(0, MAX_Q);
     if (q.length < MIN_Q) return empty;
 
-    const ip =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      req.headers.get("x-real-ip") ||
-      "local";
-    if (rateLimited(ip)) return empty;
-
+    // The cache is answered BEFORE the rate limit: a warm answer costs no
+    // upstream request, so charging quota for it only threw away work we had
+    // already done and turned a fast repeat lookup into an empty one.
     const key = q.toLowerCase();
     const now = Date.now();
     const hit = cache.get(key);
-    if (hit && now - hit.at < CACHE_MS) {
+    if (hit && now - hit.at < (hit.data.length ? CACHE_MS : NEG_CACHE_MS)) {
       return NextResponse.json(
         { suggestions: hit.data },
         { headers: { "cache-control": "no-store" } },
       );
     }
 
+    const ip =
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      req.headers.get("x-real-ip") ||
+      "local";
+    if (rateLimited(ip)) return empty;
+
     const data = await suggest(q);
     cache.set(key, { at: now, data });
     if (cache.size > 500) {
-      for (const [k, v] of cache) if (now - v.at > CACHE_MS) cache.delete(k);
+      for (const [k, v] of cache)
+        if (now - v.at > (v.data.length ? CACHE_MS : NEG_CACHE_MS))
+          cache.delete(k);
     }
     return NextResponse.json(
       { suggestions: data },

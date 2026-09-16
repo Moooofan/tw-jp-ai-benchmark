@@ -582,6 +582,40 @@ for (const [fn, args] of [
   );
 }
 
+// ------------------------------------------------ v6s Phase 2 shortlist
+// The shortlist table has no grant and no policy, and nomination_rank() /
+// shortlist_domains() are internal helpers with no grant at all, so anon
+// must be refused outright rather than merely filtered.
+await denied(
+  "anon cannot read shortlist",
+  sb.from("shortlist").select("*").limit(1),
+);
+await mustErrorLater("anon cannot insert shortlist", () =>
+  sb.from("shortlist").insert({ domain: "rls-probe.example", rank: 1 }),
+);
+await mustErrorLater("anon cannot delete shortlist", () =>
+  sb.from("shortlist").delete().eq("domain", "rls-probe.example"),
+);
+for (const [fn, args] of [
+  ["nomination_rank", undefined],
+  ["shortlist_domains", undefined],
+  ["admin_shortlist", undefined],
+  ["admin_lock_shortlist", { p_limit: 10 }],
+  ["admin_set_shortlist", { p_domains: ["rls-probe.example"] }],
+]) {
+  await mustErrorLater(`${fn}() rejects anon`, () => sb.rpc(fn, args));
+}
+// The whole v6s story — distinct-email ranking, tie-break, lock = exactly 10,
+// a ballot outside the shortlist refused in Chinese, and the live top-10
+// fallback — runs as one aborted transaction.
+rollbackTest(
+  "rollback test: v6s shortlist ranking, lock, override and ballot gate",
+  readFileSync("supabase/tests/v6s-shortlist.sql", "utf8").replace(
+    /^[\s\S]*?(?=^do )/m,
+    "",
+  ),
+);
+
 // Nothing must have been written by the probes above.
 const { count } = await sb
   .from("posts_public")

@@ -22,7 +22,12 @@ import { readSavedEmail, writeSavedEmail } from "./ParticipantEmail";
 import ShareRow from "./ShareRow";
 import SiteChrome, { type ChromeStory } from "./SiteChrome";
 
-const SEARCH_MS = 250;
+/**
+ * 250 ms spent 4–6 requests of the /api/company-lookup per-IP budget on a
+ * single company name; 400 ms roughly halves that without the box feeling
+ * slow. See the rate-limit note in src/app/api/company-lookup/route.ts.
+ */
+const SEARCH_MS = 400;
 const REASON_MIN = 10;
 const REASON_MAX = 50;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;

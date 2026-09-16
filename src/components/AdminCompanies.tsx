@@ -9,7 +9,11 @@ import {
   toCsv,
 } from "@/lib/format";
 import { errText, getBrowserClient } from "@/lib/supabase-browser";
-import type { AdminCompany, AdminNomination } from "@/lib/types";
+import type {
+  AdminCompany,
+  AdminNomination,
+  AdminShortlistRow,
+} from "@/lib/types";
 
 const STATUSES: AdminCompany["status"][] = ["active", "pending", "hidden"];
 
@@ -55,6 +59,12 @@ const fmt = (iso: string | null) =>
  * merge, seed CSV import (domain,display_name,aliases separated by |), export.
  * `name:` companies (nominated without a website, v6n) carry a 待確認官網
  * badge and can be filtered; attach them to a real domain with 合併.
+ *
+ * v6s adds 第二階段名單: the ranking that decides who reaches Phase 2 voting.
+ * Companies are ranked by DISTINCT nominator emails (so five nominations from
+ * one person still count once), ties broken on the earliest nomination. Until
+ * the owner locks a list the ranking is live — the top 10 of the moment is
+ * what /vote will accept.
  */
 export default function AdminCompanies({
   onError,
@@ -70,16 +80,21 @@ export default function AdminCompanies({
   const [noms, setNoms] = useState<AdminNomination[]>([]);
   const [nomFilter, setNomFilter] = useState("");
   const [onlyNameKeys, setOnlyNameKeys] = useState(false);
+  const [short, setShort] = useState<AdminShortlistRow[]>([]);
+  const [addDomain, setAddDomain] = useState("");
 
   const load = useCallback(async () => {
-    const [stats, list] = await Promise.all([
+    const [stats, list, sl] = await Promise.all([
       supabase.rpc("admin_company_stats"),
       supabase.rpc("admin_nominations"),
+      supabase.rpc("admin_shortlist"),
     ]);
     if (stats.error) onError(errText(stats.error));
     else setRows((stats.data as AdminCompany[] | null) ?? []);
     if (list.error) onError(errText(list.error));
     else setNoms((list.data as AdminNomination[] | null) ?? []);
+    if (sl.error) onError(errText(sl.error));
+    else setShort((sl.data as AdminShortlistRow[] | null) ?? []);
   }, [supabase, onError]);
 
   const nameKeyCount = rows.filter((r) => isNameKey(r.domain)).length;
@@ -109,6 +124,69 @@ export default function AdminCompanies({
       setMsg(`已儲存 ${r.domain}`);
       void load();
     }
+  }
+
+  /** The list as it stands: the locked rows, or the live top 10. */
+  const inList = short
+    .filter((r) => r.in_shortlist)
+    .sort((a, b) => (a.shortlist_rank ?? a.rank ?? 0) - (b.shortlist_rank ?? b.rank ?? 0));
+  const locked = short.some((r) => r.locked);
+  const lockedAt = short.find((r) => r.locked_at)?.locked_at ?? null;
+
+  async function lockTop10() {
+    if (
+      !window.confirm(
+        "鎖定目前提名數前 10 名為第二階段名單？\n鎖定後只有名單內的公司可以被投票，之後仍可再鎖定一次或手動調整。",
+      )
+    )
+      return;
+    const { error } = await supabase.rpc("admin_lock_shortlist", {
+      p_limit: 10,
+    });
+    if (error) onError(errText(error));
+    else {
+      setMsg("已鎖定第二階段名單（前 10 名）");
+      void load();
+    }
+  }
+
+  /** Every manual change rewrites the whole list, ranks following the order. */
+  async function writeList(domains: string[], note: string) {
+    const { error } = await supabase.rpc("admin_set_shortlist", {
+      p_domains: domains,
+    });
+    if (error) onError(errText(error));
+    else {
+      setMsg(note);
+      setAddDomain("");
+      void load();
+    }
+  }
+
+  function removeFromList(domain: string) {
+    if (!window.confirm(`把 ${domain} 移出第二階段名單？`)) return;
+    void writeList(
+      inList.filter((r) => r.domain !== domain).map((r) => r.domain),
+      `已移出 ${domain}`,
+    );
+  }
+
+  function addToList(domain: string) {
+    if (!domain || inList.some((r) => r.domain === domain)) return;
+    void writeList(
+      [...inList.map((r) => r.domain), domain],
+      `已加入 ${domain}`,
+    );
+  }
+
+  function unlockList() {
+    if (
+      !window.confirm(
+        "解除鎖定？第二階段會回到即時排名的前 10 名，隨提名變動。",
+      )
+    )
+      return;
+    void writeList([], "已解除鎖定，改用即時前 10 名");
   }
 
   async function merge() {
@@ -360,6 +438,117 @@ export default function AdminCompanies({
                 </td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="admin-shortlist">第二階段名單（{inList.length}）</h3>
+      <p className="note">
+        排名依「提名人數」＝不重複的提名 Email 數，同分時先被提名的在前。
+        同一個人重複提名同一家公司只算一次；「提名次數」是原始筆數，僅供參考。
+      </p>
+      <div className="arow">
+        <span className={locked ? "abadge" : "note"}>
+          {locked
+            ? `已鎖定${lockedAt ? `（${fmt(lockedAt)}）` : ""}`
+            : "尚未鎖定：第二階段目前跟著即時排名的前 10 名走"}
+        </span>
+        <button className="abtn" type="button" onClick={() => void lockTop10()}>
+          鎖定前 10 名
+        </button>
+        {locked ? (
+          <button className="abtn" type="button" onClick={unlockList}>
+            解除鎖定
+          </button>
+        ) : null}
+        <label className="afield">
+          <span>手動加入公司</span>
+          <select
+            value={addDomain}
+            onChange={(e) => setAddDomain(e.target.value)}
+          >
+            <option value="">選擇一個</option>
+            {short
+              .filter((r) => !r.in_shortlist)
+              .map((r) => (
+                <option key={r.domain} value={r.domain}>
+                  {r.display_name ?? r.domain}（{r.domain}）
+                </option>
+              ))}
+          </select>
+        </label>
+        <button
+          className="abtn"
+          type="button"
+          disabled={!addDomain}
+          onClick={() => addToList(addDomain)}
+        >
+          加入名單
+        </button>
+      </div>
+      <div className="tablewrap">
+        <table className="at">
+          <thead>
+            <tr>
+              <th>排名</th>
+              <th>公司</th>
+              <th>提名人數</th>
+              <th>提名次數</th>
+              <th>首次提名</th>
+              <th>第二階段</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {short.map((r) => (
+              <tr key={r.domain}>
+                <td className="num">
+                  {r.in_shortlist && r.shortlist_rank !== null
+                    ? r.shortlist_rank
+                    : (r.rank ?? "")}
+                </td>
+                <td>
+                  {r.display_name ?? r.domain}
+                  <div className="note">{r.domain}</div>
+                </td>
+                <td className="num">{r.voters}</td>
+                <td className="num">{r.noms}</td>
+                <td>{fmt(r.first_at)}</td>
+                <td>
+                  {r.in_shortlist ? (
+                    <span className="abadge">入選</span>
+                  ) : (
+                    <span className="note">未入選</span>
+                  )}
+                </td>
+                <td>
+                  {r.in_shortlist ? (
+                    <button
+                      className="abtn"
+                      type="button"
+                      onClick={() => removeFromList(r.domain)}
+                    >
+                      移出
+                    </button>
+                  ) : (
+                    <button
+                      className="abtn"
+                      type="button"
+                      onClick={() => addToList(r.domain)}
+                    >
+                      加入
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {short.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="note">
+                  還沒有任何提名，排名是空的。
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

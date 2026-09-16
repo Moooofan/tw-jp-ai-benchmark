@@ -309,3 +309,24 @@ export type AdminVoteStat = {
   adjust: number;
   votes: number;
 };
+
+/**
+ * admin_shortlist() row (v6s). `rank` is the live ranking by DISTINCT
+ * nominator emails (`voters`), tie-broken on `first_at`; `noms` is the raw
+ * row count and is admin-only. `shortlist_rank` is set only for companies
+ * actually in public.shortlist, and `locked` carries the same value on every
+ * row: true once a shortlist has been locked, false while Phase 2 still
+ * follows the live top 10.
+ */
+export type AdminShortlistRow = {
+  domain: string;
+  display_name: string | null;
+  voters: number;
+  noms: number;
+  first_at: string | null;
+  rank: number | null;
+  in_shortlist: boolean;
+  shortlist_rank: number | null;
+  locked: boolean;
+  locked_at: string | null;
+};
