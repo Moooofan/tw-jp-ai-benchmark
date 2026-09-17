@@ -1,8 +1,9 @@
 import {
   ArrowRight,
+  CalendarDays,
   Info,
 } from "lucide-react";
-
+import { dateRange } from "@/lib/format";
 import type { Board, Stats } from "@/lib/types";
 import BackgroundBand from "./BackgroundBand";
 import Band from "./Band";
@@ -63,6 +64,15 @@ export default function HomePhase1({
               <p className="stand">
                 輸入公司名稱就能提名，不用註冊，也不用留 Email。
               </p>
+              <ul className="herodates" aria-label="提名期間">
+                <li className={open ? "is-now" : undefined}>
+                  <Icon icon={CalendarDays} />
+                  <span className="herodates__k">提名期間</span>
+                  <span className="herodates__v">
+                    {dateRange(stats.nominate_open, stats.nominate_close)}
+                  </span>
+                </li>
+              </ul>
               <div className="hero__cta">
                 <NominateCta stats={stats}>
                   <Icon icon={ArrowRight} />
