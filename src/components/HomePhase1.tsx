@@ -92,9 +92,6 @@ export default function HomePhase1({
           <BackgroundBand ctaHref={open ? "/nominate" : "#faq"} />
 
           <Band id="board" chip="Nomination Board" title="候選名單">
-            <p className="notice">
-              這是提名名單，不是正式投票結果。同一家公司被提名多次，只代表它已被提名。
-            </p>
             <NominationBoard stats={stats} />
           </Band>
 

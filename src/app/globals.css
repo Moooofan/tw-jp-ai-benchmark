@@ -758,3 +758,14 @@ button.btn--done{background:var(--ink)}
 /* Phase 1: the nomination period sits on its own just above the FAQ (owner, 2026-09-17). */
 .when{margin-top:84px;display:grid;grid-template-columns:minmax(0,420px)}
 .when .sc{margin:0}
+
+/* Phase 1 board + period: one width, one column (owner, 2026-09-17). */
+.bcard--live{max-width:none}
+.bcard--live header{margin-bottom:14px}
+.bsub{margin:6px 0 0;font-size:14px;color:var(--muted);font-weight:500}
+.boardempty + .bsub{display:none}
+.when{margin-top:24px;display:block}
+.when .sc{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:20px 26px}
+.when .sc .ico{grid-row:auto}
+.when .sc .k{font-size:14px}
+.when .sc .v{font-size:18px}

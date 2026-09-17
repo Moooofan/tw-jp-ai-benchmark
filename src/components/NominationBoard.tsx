@@ -156,6 +156,9 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
           <Icon icon={Flame} />
           即時榜單
         </h3>
+        <p className="bsub">
+          這是提名名單，不是正式投票結果。同一家公司被提名多次，只代表它已被提名。
+        </p>
       </header>
       <ol className="rows rows--hot">
         {board.hot.map((c, i) => (
