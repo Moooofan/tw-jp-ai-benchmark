@@ -769,3 +769,13 @@ button.btn--done{background:var(--ink)}
 .when .sc .ico{grid-row:auto}
 .when .sc .k{font-size:14px}
 .when .sc .v{font-size:18px}
+
+/* Board header carries the nomination period (owner, 2026-09-17). */
+.livehead{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap}
+.period{display:flex;align-items:center;gap:12px;background:var(--ground);border-top:3px solid var(--line);padding:12px 16px}
+.period .ico{color:var(--brand)}
+.period__k{display:block;font-family:var(--cond);font-weight:700;font-size:12px;letter-spacing:.14em;color:var(--muted)}
+.period__v{display:block;font-weight:900;font-size:17px;color:var(--ink);line-height:1.4}
+.period--now{border-top-color:var(--passion)}
+.period--now .period__k{color:var(--passion)}
+.period--now .period__k::after{content:"進行中";margin-left:8px;font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.06em;background:var(--passion);color:#fff;padding:1px 6px}

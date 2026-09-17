@@ -11,10 +11,11 @@ import {
   ArrowDown,
   ArrowRight,
   ArrowUp,
+  CalendarDays,
   Flame,
   Minus,
 } from "lucide-react";
-import { hhmm } from "@/lib/format";
+import { dateRange, hhmm } from "@/lib/format";
 import { getBrowserClient } from "@/lib/supabase-browser";
 import {
   EMPTY_BOARD,
@@ -150,15 +151,30 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
 
   return (
     <article className="bcard bcard--live">
-      <header>
-        <span className="k">LIVE RANKING</span>
-        <h3>
-          <Icon icon={Flame} />
-          即時榜單
-        </h3>
-        <p className="bsub">
-          這是提名名單，不是正式投票結果。同一家公司被提名多次，只代表它已被提名。
-        </p>
+      <header className="livehead">
+        <div>
+          <span className="k">LIVE RANKING</span>
+          <h3>
+            <Icon icon={Flame} />
+            即時榜單
+          </h3>
+          <p className="bsub">
+            這是提名名單，不是正式投票結果。同一家公司被提名多次，只代表它已被提名。
+          </p>
+        </div>
+        <div
+          className={
+            stats.phase === "nominate" ? "period period--now" : "period"
+          }
+        >
+          <Icon icon={CalendarDays} />
+          <span>
+            <span className="period__k">提名期間</span>
+            <span className="period__v">
+              {dateRange(stats.nominate_open, stats.nominate_close)}
+            </span>
+          </span>
+        </div>
       </header>
       <ol className="rows rows--hot">
         {board.hot.map((c, i) => (

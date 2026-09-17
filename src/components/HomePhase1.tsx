@@ -1,9 +1,8 @@
 import {
   ArrowRight,
-  CalendarDays,
   Info,
 } from "lucide-react";
-import { dateRange } from "@/lib/format";
+
 import type { Board, Stats } from "@/lib/types";
 import BackgroundBand from "./BackgroundBand";
 import Band from "./Band";
@@ -94,16 +93,6 @@ export default function HomePhase1({
           <Band id="board" chip="Nomination Board" title="候選名單">
             <NominationBoard stats={stats} />
           </Band>
-
-          <div className="when" id="when">
-            <div className={open ? "sc now" : "sc"}>
-              <Icon icon={CalendarDays} />
-              <span className="k">提名期間</span>
-              <span className="v">
-                {dateRange(stats.nominate_open, stats.nominate_close)}
-              </span>
-            </div>
-          </div>
 
           <Band id="faq" chip="FAQ" title="常見問題">
             <div className="acc">
