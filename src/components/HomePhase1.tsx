@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  CalendarDays,
   Info,
 } from "lucide-react";
 import { dateRange } from "@/lib/format";
@@ -11,7 +12,7 @@ import NominationBoard, { BoardProvider } from "./NominationBoard";
 import SiteChrome, { DISCLAIMER, NominateCta } from "./SiteChrome";
 
 
-const faqItems = (stats: Stats): { q: string; a: string }[] => [
+const faqItems = (): { q: string; a: string }[] => [
   {
     q: "需要註冊或留 Email 嗎？",
     a: "不需要。輸入公司名稱、確認是這家公司，就完成提名。",
@@ -27,10 +28,6 @@ const faqItems = (stats: Stats): { q: string; a: string }[] => [
   {
     q: "什麼樣的公司可以被提名？",
     a: "台灣新創，且過去五年在日本市場有公開可查的發展。",
-  },
-  {
-    q: "提名到什麼時候？",
-    a: `提名期間 ${dateRange(stats.nominate_open, stats.nominate_close)}。`,
   },
 ];
 
@@ -101,9 +98,19 @@ export default function HomePhase1({
             <NominationBoard stats={stats} />
           </Band>
 
+          <div className="when" id="when">
+            <div className={open ? "sc now" : "sc"}>
+              <Icon icon={CalendarDays} />
+              <span className="k">提名期間</span>
+              <span className="v">
+                {dateRange(stats.nominate_open, stats.nominate_close)}
+              </span>
+            </div>
+          </div>
+
           <Band id="faq" chip="FAQ" title="常見問題">
             <div className="acc">
-              {faqItems(stats).map((f) => (
+              {faqItems().map((f) => (
                 <details key={f.q}>
                   <summary>{f.q}</summary>
                   <div className="a">{f.a}</div>

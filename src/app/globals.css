@@ -754,3 +754,7 @@ button.btn--done{background:var(--ink)}
 .divis__r{color:var(--ink);font-weight:500}
 .divis__n{color:var(--muted);white-space:nowrap;font-size:13px}
 @media (max-width:860px){.divis li{grid-template-columns:minmax(0,1fr);gap:4px}}
+
+/* Phase 1: the nomination period sits on its own just above the FAQ (owner, 2026-09-17). */
+.when{margin-top:84px;display:grid;grid-template-columns:minmax(0,420px)}
+.when .sc{margin:0}
