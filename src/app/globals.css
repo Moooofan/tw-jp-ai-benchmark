@@ -794,3 +794,4 @@ button.btn--done{background:var(--ink)}
 .herodates li.is-now .herodates__k{color:var(--brand)}
 /* keep the three headline lines intact next to the vertical type */
 .hero--p1 h1{font-size:clamp(32px,4.3vw,54px)}
+.boardmore{display:flex;justify-content:center;margin-top:18px}

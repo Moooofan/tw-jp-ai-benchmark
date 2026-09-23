@@ -125,6 +125,10 @@ export function BoardUpdated() {
  */
 export default function NominationBoard({ stats }: { stats: Stats }) {
   const { board, now } = useContext(BoardContext);
+  const [showAll, setShowAll] = useState(false);
+  const TOP = 12;
+  const shown = showAll ? board.hot : board.hot.slice(0, TOP);
+  const rest = board.hot.length - shown.length;
 
   const ref =
     now ?? (board.updated_at ? new Date(board.updated_at).getTime() : 0);
@@ -177,7 +181,7 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
         </div>
       </header>
       <ol className="rows rows--hot">
-        {board.hot.map((c, i) => (
+        {shown.map((c, i) => (
           <li key={c.domain}>
             <span className="rk">{pad2(i + 1)}</span>
             <Favicon domain={c.domain} name={c.display_name} />
@@ -197,6 +201,17 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
           </li>
         ))}
       </ol>
+      {rest > 0 || showAll ? (
+        <div className="boardmore">
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => setShowAll((v) => !v)}
+          >
+            {showAll ? "只看前 12 名" : `看全部 ${board.hot.length} 家`}
+          </button>
+        </div>
+      ) : null}
       <footer className="boardfoot">
         <span className="bnote">
           目前 {board.total_companies} 家公司被提名。
