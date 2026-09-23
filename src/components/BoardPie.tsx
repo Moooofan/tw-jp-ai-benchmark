@@ -13,10 +13,14 @@ const MODES: { k: Mode; label: string }[] = [
 
 const LISTING_LABEL: Record<string, string> = {
   listed: "上市櫃",
-  private: "未上市",
+  private: "未上市上櫃",
   subsidiary: "集團子公司",
-  unknown: "未確認",
 };
+
+/** Only three buckets exist (owner, 2026-09-23); anything unclassified counts
+ * as 未上市上櫃 until research says otherwise. */
+const listingKey = (v: string) =>
+  v === "listed" || v === "subsidiary" ? v : "private";
 
 // Brand-family colours, dark to light, so slices stay legible next to each other.
 const COLORS = [
@@ -49,8 +53,9 @@ function group(board: Board, mode: Mode): Slice[] {
   }
   const map = new Map<string, Slice>();
   for (const r of rows) {
-    const key = mode === "sector" ? r.sector : r.listing;
-    const label = mode === "sector" ? r.sector : (LISTING_LABEL[r.listing] ?? r.listing);
+    const key = mode === "sector" ? r.sector : listingKey(r.listing);
+    const label =
+      mode === "sector" ? r.sector : LISTING_LABEL[listingKey(r.listing)];
     const cur = map.get(key);
     if (cur) cur.n += r.noms;
     else map.set(key, { key, label, n: r.noms });
