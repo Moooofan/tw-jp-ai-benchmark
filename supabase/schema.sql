@@ -5035,10 +5035,13 @@ begin
                'domain', h.domain,
                'display_name', h.display_name,
                'share', h.share,
-               'movement', h.movement
+               'movement', h.movement,
+               'noms', h.n,
+               'sector', h.sector,
+               'listing', h.listing
              ) order by h.rank)
       from (
-        select l.domain, l.display_name, l.rank,
+        select l.domain, l.display_name, l.rank, l.n, l.sector, l.listing,
                greatest(0.05, round(l.n::numeric * 20 / nullif(v_live_top, 0)) / 20)::float8 as share,
                case
                  when v_latest is null or p.rank is null then 'new'
@@ -5047,12 +5050,15 @@ begin
                  else 'same'
                end as movement
         from (
-          select c.domain, c.display_name, count(*)::int as n,
+          select c.domain, c.display_name,
+                 coalesce(nullif(btrim(c.sector), ''), '未分類') as sector,
+                 coalesce(nullif(btrim(c.listing), ''), 'unknown') as listing,
+                 count(*)::int as n,
                  (row_number() over (order by count(*) desc, min(nm.created_at) asc, c.domain))::int as rank
           from public.nominations nm
           join public.companies c on c.domain = nm.domain
           where c.status <> 'hidden' and c.merged_into is null
-          group by c.domain, c.display_name
+          group by c.domain, c.display_name, c.sector, c.listing
         ) l
         left join public.board_snapshots p on p.taken_at = v_latest and p.domain = l.domain
         order by l.rank
@@ -5066,3 +5072,110 @@ end;
 $$;
 grant execute on function public.board() to anon, authenticated;
 -- END v6j
+
+-- BEGIN v6k
+-- Classification for the nomination board: sector and listing status, plus the
+-- raw nomination count, so the page can draw proportions (owner, 2026-09-23).
+alter table public.companies add column if not exists sector text;
+alter table public.companies add column if not exists listing text;
+alter table public.companies add column if not exists ticker text;
+alter table public.companies drop constraint if exists companies_listing_check;
+alter table public.companies add constraint companies_listing_check
+  check (listing is null or listing in ('listed','private','subsidiary','unknown')) not valid;
+create or replace function public.board()
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_latest timestamptz;
+  v_prev timestamptz;
+  v_top int;
+  v_live_top int;
+begin
+  if coalesce((select max(taken_at) from public.board_snapshots), '-infinity'::timestamptz)
+     < now() - interval '60 minutes' then
+    perform public.take_board_snapshot();
+  end if;
+
+  select max(taken_at) into v_latest from public.board_snapshots;
+  select max(n) into v_live_top from (
+    select count(*) as n
+    from public.nominations nm
+    join public.companies c on c.domain = nm.domain
+    where c.status <> 'hidden' and c.merged_into is null
+    group by c.domain
+  ) t;
+  select max(taken_at) into v_prev from public.board_snapshots where taken_at < v_latest;
+  select max(s.n) into v_top
+  from public.board_snapshots s
+  join public.companies c on c.domain = s.domain
+  where s.taken_at = v_latest and c.status <> 'hidden' and c.merged_into is null;
+
+  return json_build_object(
+    'total_companies', (
+      select count(distinct nm.domain)::int
+      from public.nominations nm
+      join public.companies c on c.domain = nm.domain
+      where c.status <> 'hidden' and c.merged_into is null
+    ),
+    'recent', coalesce((
+      select json_agg(json_build_object(
+               'domain', r.domain,
+               'display_name', r.display_name,
+               'first_nominated_at', r.first_nominated_at
+             ) order by r.first_nominated_at desc)
+      from (
+        select c.domain, c.display_name, min(nm.created_at) as first_nominated_at
+        from public.nominations nm
+        join public.companies c on c.domain = nm.domain
+        where c.status <> 'hidden' and c.merged_into is null
+        group by c.domain, c.display_name
+        order by min(nm.created_at) desc
+        limit 8
+      ) r
+    ), '[]'::json),
+    'hot', coalesce((
+      select json_agg(json_build_object(
+               'domain', h.domain,
+               'display_name', h.display_name,
+               'share', h.share,
+               'movement', h.movement,
+               'noms', h.n,
+               'sector', h.sector,
+               'listing', h.listing
+             ) order by h.rank)
+      from (
+        select l.domain, l.display_name, l.rank, l.n, l.sector, l.listing,
+               greatest(0.05, round(l.n::numeric * 20 / nullif(v_live_top, 0)) / 20)::float8 as share,
+               case
+                 when v_latest is null or p.rank is null then 'new'
+                 when p.rank > l.rank then 'up'
+                 when p.rank < l.rank then 'down'
+                 else 'same'
+               end as movement
+        from (
+          select c.domain, c.display_name,
+                 coalesce(nullif(btrim(c.sector), ''), '未分類') as sector,
+                 coalesce(nullif(btrim(c.listing), ''), 'unknown') as listing,
+                 count(*)::int as n,
+                 (row_number() over (order by count(*) desc, min(nm.created_at) asc, c.domain))::int as rank
+          from public.nominations nm
+          join public.companies c on c.domain = nm.domain
+          where c.status <> 'hidden' and c.merged_into is null
+          group by c.domain, c.display_name, c.sector, c.listing
+        ) l
+        left join public.board_snapshots p on p.taken_at = v_latest and p.domain = l.domain
+        order by l.rank
+        limit 500
+      ) h
+    ), '[]'::json),
+    'updated_at', now(),
+    'snapshot_at', v_latest
+  );
+end;
+$$;
+grant execute on function public.board() to anon, authenticated;
+-- END v6k

@@ -23,6 +23,7 @@ import {
   type Movement,
   type Stats,
 } from "@/lib/types";
+import BoardPie from "./BoardPie";
 import Favicon from "./Favicon";
 import Icon from "./Icon";
 import { NominateCta } from "./SiteChrome";
@@ -178,6 +179,7 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
           </span>
         </div>
       </header>
+      <BoardPie board={board} />
       <ol className="rows rows--hot">
         {shown.map((c, i) => (
           <li key={c.domain}>
@@ -189,7 +191,7 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
                 {isFresh(c.domain) ? <span className="fresh">新</span> : null}
               </b>
               <span className="heat">
-                <span className="heat__k">關注度</span>
+                <span className="heat__k">提名 {c.noms} 次</span>
                 <span className="heat__bar">
                   <i style={{ width: `${Math.round(c.share * 100)}%` }} />
                 </span>

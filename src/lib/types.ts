@@ -121,7 +121,15 @@ export type Movement = "up" | "down" | "same" | "new";
 export type Board = {
   total_companies: number;
   recent: { domain: string; display_name: string; first_nominated_at: string }[];
-  hot: { domain: string; display_name: string; share: number; movement: Movement }[];
+  hot: {
+    domain: string;
+    display_name: string;
+    share: number;
+    movement: Movement;
+    noms: number;
+    sector: string;
+    listing: "listed" | "private" | "subsidiary" | "unknown";
+  }[];
   updated_at: string | null;
   snapshot_at: string | null;
 };
