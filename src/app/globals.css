@@ -822,3 +822,6 @@ button.btn--done{background:var(--ink)}
 .meta__n{font-family:var(--cond);font-weight:700;font-size:13px;letter-spacing:.08em;color:var(--muted)}
 .meta__tag{font-size:12px;font-weight:700;color:var(--brand);background:var(--ground);padding:1px 8px}
 .rows--hot li{grid-template-columns:44px minmax(0,1fr)}
+/* The feed is a list of who is here, so let it read in two columns on desktop. */
+.rows--hot{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:32px}
+@media (max-width:860px){.rows--hot{grid-template-columns:minmax(0,1fr)}}
