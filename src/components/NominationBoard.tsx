@@ -8,48 +8,23 @@ import {
   type ReactNode,
 } from "react";
 import {
-  ArrowDown,
   ArrowRight,
-  ArrowUp,
   CalendarDays,
   Flame,
-  Minus,
 } from "lucide-react";
 import { dateRange, hhmm } from "@/lib/format";
 import { getBrowserClient } from "@/lib/supabase-browser";
 import {
   EMPTY_BOARD,
   type Board,
-  type Movement,
   type Stats,
 } from "@/lib/types";
 import BoardPie from "./BoardPie";
+import NameCloud from "./NameCloud";
 import Favicon from "./Favicon";
 import Icon from "./Icon";
 import { NominateCta } from "./SiteChrome";
-
-/** Set by /nominate after a successful nomination; makes the board re-read live. */
-export const JUST_NOMINATED_KEY = "tj:nominated";
-
-const pad2 = (n: number) => String(n).padStart(2, "0");
-
-function MoveMark({ m }: { m: Movement }) {
-  if (m === "new") return <span className="mv mv--new">NEW</span>;
-  const label =
-    m === "up" ? "排序上升" : m === "down" ? "排序下降" : "排序不變";
-  return (
-    <span className={`mv mv--${m}`} title={label}>
-      {m === "up" ? (
-        <ArrowUp size={16} strokeWidth={2} aria-hidden="true" />
-      ) : m === "down" ? (
-        <ArrowDown size={16} strokeWidth={2} aria-hidden="true" />
-      ) : (
-        <Minus size={16} strokeWidth={2} aria-hidden="true" />
-      )}
-      <span className="sr">{label}</span>
-    </span>
-  );
-}
+export const JUST_NOMINATED_KEY = "benchmark:just-nominated";
 
 const BoardContext = createContext<{ board: Board; now: number | null }>({
   board: EMPTY_BOARD,
@@ -156,10 +131,10 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
     <article className="bcard bcard--live">
       <header className="livehead">
         <div>
-          <span className="k">LIVE RANKING</span>
+          <span className="k">NOMINATION FEED</span>
           <h3>
             <Icon icon={Flame} />
-            即時榜單
+            提名動態
           </h3>
           <p className="bsub">
             這是提名名單，不是正式投票結果。同一家公司被提名多次，只代表它已被提名。
@@ -180,24 +155,23 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
         </div>
       </header>
       <BoardPie board={board} />
+      <NameCloud board={board} />
       <ol className="rows rows--hot">
-        {shown.map((c, i) => (
+        {shown.map((c) => (
           <li key={c.domain}>
-            <span className="rk">{pad2(i + 1)}</span>
             <Favicon domain={c.domain} name={c.display_name} />
             <span className="co">
               <b>
                 {c.display_name}
                 {isFresh(c.domain) ? <span className="fresh">新</span> : null}
               </b>
-              <span className="heat">
-                <span className="heat__k">提名 {c.noms} 次</span>
-                <span className="heat__bar">
-                  <i style={{ width: `${Math.round(c.share * 100)}%` }} />
-                </span>
+              <span className="meta">
+                <span className="meta__n">提名 {c.noms} 次</span>
+                {c.sector && c.sector !== "未分類" ? (
+                  <span className="meta__tag">{c.sector}</span>
+                ) : null}
               </span>
             </span>
-            <MoveMark m={c.movement} />
           </li>
         ))}
       </ol>

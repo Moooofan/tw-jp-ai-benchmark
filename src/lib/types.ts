@@ -129,6 +129,7 @@ export type Board = {
     noms: number;
     sector: string;
     listing: "listed" | "private" | "subsidiary" | "unknown";
+    first_at: string | null;
   }[];
   updated_at: string | null;
   snapshot_at: string | null;

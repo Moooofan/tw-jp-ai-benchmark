@@ -3,11 +3,12 @@
 import { useMemo, useState } from "react";
 import type { Board } from "@/lib/types";
 
-type Mode = "company" | "sector" | "listing";
+// A nomination feed, not a contest (CEO note, 2026-09-24): the split is shown
+// by class, never company-by-company.
+type Mode = "sector" | "listing";
 
 const MODES: { k: Mode; label: string }[] = [
-  { k: "company", label: "公司" },
-  { k: "sector", label: "產業" },
+  { k: "sector", label: "產業分布" },
   { k: "listing", label: "上市狀態" },
 ];
 
@@ -40,17 +41,6 @@ type Slice = { key: string; label: string; n: number };
 
 function group(board: Board, mode: Mode): Slice[] {
   const rows = board.hot;
-  if (mode === "company") {
-    const top = rows.slice(0, 9).map((r) => ({
-      key: r.domain,
-      label: r.display_name,
-      n: r.noms,
-    }));
-    const restN = rows.slice(9).reduce((s, r) => s + r.noms, 0);
-    return restN > 0
-      ? [...top, { key: "__rest", label: `其他 ${rows.length - 9} 家`, n: restN }]
-      : top;
-  }
   const map = new Map<string, Slice>();
   for (const r of rows) {
     const key = mode === "sector" ? r.sector : listingKey(r.listing);
@@ -65,7 +55,7 @@ function group(board: Board, mode: Mode): Slice[] {
 
 /** Donut of the nomination split, by company, sector or listing status. */
 export default function BoardPie({ board }: { board: Board }) {
-  const [mode, setMode] = useState<Mode>("company");
+  const [mode, setMode] = useState<Mode>("sector");
   const slices = useMemo(() => group(board, mode), [board, mode]);
   const total = slices.reduce((s, x) => s + x.n, 0);
 
