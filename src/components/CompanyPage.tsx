@@ -1,17 +1,11 @@
 import Link from "next/link";
-import {
-  ArrowRight,
-  ExternalLink,
-  MessageSquareText,
-  Trophy,
-  Vote,
-} from "lucide-react";
+import { ArrowRight, ExternalLink, MessageSquareText, Vote } from "lucide-react";
 import { isNameKey } from "@/lib/format";
 import type { CloudWord } from "@/lib/wordcloud";
 import type { CompanyDetail, Stats } from "@/lib/types";
 import Band from "./Band";
 import Icon from "./Icon";
-import { ReactionProvider, ReasonCard } from "./Reactions";
+import { DISLIKE_NOTE, ReactionProvider, ReasonCard } from "./Reactions";
 import SiteChrome from "./SiteChrome";
 import WordCloud from "./WordCloud";
 
@@ -68,12 +62,8 @@ export default function CompanyPage({
         </div>
 
         <div className="wrap">
-          <div className="sched sched--flat" aria-label="公司概況">
-            <div className="sc">
-              <Icon icon={Trophy} />
-              <span className="k">目前排名</span>
-              <span className="v num">#{detail.rank}</span>
-            </div>
+          {/* spec v8 §5: no rank numerals — this is not a final ranking. */}
+          <div className="sched sched--flat sched--two" aria-label="公司概況">
             <div className="sc">
               <Icon icon={Vote} />
               <span className="k">票數</span>
@@ -87,6 +77,9 @@ export default function CompanyPage({
           </div>
 
           <Band id="why" chip="Why People Vote" title="大家為什麼投它">
+            <p className="note">
+              每一則理由每滿 10 個有效按讚，替該公司增加 1 票。{DISLIKE_NOTE}
+            </p>
             {detail.reasons.length === 0 ? (
               <p className="empty">還沒有人寫下理由。</p>
             ) : (

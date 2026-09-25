@@ -98,51 +98,56 @@ function MovementMark({ m }: { m: Movement }) {
   );
 }
 
-/** 01 排行榜: top 30 with movement and a bar relative to the leader. */
-export function Leaderboard() {
+/**
+ * 目前的社群判斷 (spec v8 §5): ordered by official votes, with NO rank
+ * numerals — the locked doc forbids 01/02/03 because this is a live community
+ * signal, not a final ranking. Movement marks stay: they describe change.
+ */
+export function ResultBoard() {
   const { leaderboard } = useContext(BoardCtx);
   if (leaderboard.length === 0) {
-    return <p className="empty">候選公司確認後，這裡會出現排行榜。</p>;
+    return <p className="empty">正式投票開始後，這裡會出現目前的社群判斷。</p>;
   }
   const lead = Math.max(1, ...leaderboard.map((r) => r.votes));
   return (
-    <div className="lb">
-      <div className="lb__head" aria-hidden="true">
-        <span>排名</span>
+    <div className="rb">
+      <div className="rb__head" aria-hidden="true">
         <span />
         <span>公司</span>
         <span className="num">票數</span>
         <span className="num">理由</span>
       </div>
-      <ol className="lb__rows">
+      <ul className="rb__rows">
         {leaderboard.map((r) => (
-          <li key={r.domain} className={r.rank <= 3 ? "lb__row top" : "lb__row"}>
-            <span className="lb__rank">{r.rank}</span>
+          <li key={r.domain} className="rb__row">
             <MovementMark m={r.movement} />
-            <div className="lb__co">
+            <div className="rb__co">
               <Favicon domain={r.domain} name={r.display_name} size={28} />
-              <div className="lb__name">
-                <Link href={`/company/${encodeURIComponent(r.domain)}`}>
-                  {r.display_name}
-                </Link>
-                <span className="lb__bar" aria-hidden="true">
+              <div className="rb__name">
+                <span className="rb__top">
+                  <Link href={`/company/${encodeURIComponent(r.domain)}`}>
+                    {r.display_name}
+                  </Link>
+                  {r.sector ? <span className="rb__tag">{r.sector}</span> : null}
+                </span>
+                <span className="rb__bar" aria-hidden="true">
                   <i
                     style={{
                       width: `${Math.max(0, Math.min(100, (r.votes / lead) * 100))}%`,
                     }}
                   />
                 </span>
-                <small className="lb__sub">{r.reasons} 則理由</small>
+                <small className="rb__sub">{r.reasons} 則理由</small>
               </div>
             </div>
-            <span className="lb__votes num">
+            <span className="rb__votes num">
               {nf.format(r.votes)}
               <small> 票</small>
             </span>
-            <span className="lb__reasons num">{nf.format(r.reasons)}</span>
+            <span className="rb__reasons num">{nf.format(r.reasons)}</span>
           </li>
         ))}
-      </ol>
+      </ul>
     </div>
   );
 }
@@ -205,12 +210,11 @@ export function ResonanceAndTrend() {
   const dislikes = board.total_dislikes;
   const all = likes + dislikes;
   const share = all > 0 ? Math.round((likes / all) * 100) : 0;
-  const net = likes - dislikes;
   const top = board.resonance[0];
   const peak = board.trend.reduce((m, d) => Math.max(m, d.ballots, d.reasons), 0);
 
   if (all === 0 && board.trend.length === 0) {
-    return <p className="empty">投票開始後，這裡會顯示大家的推噓與每日趨勢。</p>;
+    return <p className="empty">投票開始後，這裡會顯示大家的回饋與每日趨勢。</p>;
   }
 
   return (
@@ -220,13 +224,9 @@ export function ResonanceAndTrend() {
         <i className="reso__down" style={{ width: `${100 - share}%` }} />
       </div>
       <p className="reso__k">
-        全站推 <b className="num">{nf.format(likes)}</b> · 噓{" "}
-        <b className="num">{nf.format(dislikes)}</b> · 淨值{" "}
-        <b className="num">
-          {net > 0 ? "+" : ""}
-          {nf.format(net)}
-        </b>
-        （每淨 10 個影響該公司 1 票）
+        全站按讚 <b className="num">{nf.format(likes)}</b> · 倒讚{" "}
+        <b className="num">{nf.format(dislikes)}</b>
+        （每一則理由每滿 10 個有效按讚，替該公司增加 1 票）
       </p>
 
       {board.resonance.length > 0 ? (
@@ -244,9 +244,7 @@ export function ResonanceAndTrend() {
                     <i className="reso__down" style={{ width: `${100 - up}%` }} />
                   </span>
                   <span className="resolist__n num">
-                    推 {nf.format(c.likes)} · 噓 {nf.format(c.dislikes)} · 淨{" "}
-                    {c.net > 0 ? "+" : ""}
-                    {nf.format(c.net)}
+                    按讚 {nf.format(c.likes)} · 倒讚 {nf.format(c.dislikes)}
                   </span>
                 </li>
               );
@@ -254,8 +252,8 @@ export function ResonanceAndTrend() {
           </ol>
           {top ? (
             <p className="bnote">
-              目前最有共鳴的是 {top.display_name}，淨值 {top.net > 0 ? "+" : ""}
-              {nf.format(top.net)}，換算約 {Math.trunc(top.net / 10)} 票。
+              目前最有共鳴的是 {top.display_name}，累積 {nf.format(top.likes)}{" "}
+              個按讚。反對反應僅供回饋，不會扣除公司票數。
             </p>
           ) : null}
         </div>
@@ -270,7 +268,7 @@ export function ResonanceAndTrend() {
                 <span className="divis__co">{r.display_name}</span>
                 <span className="divis__r">{r.reason}</span>
                 <span className="divis__n num">
-                  推 {nf.format(r.likes)} · 噓 {nf.format(r.dislikes)}
+                  按讚 {nf.format(r.likes)} · 倒讚 {nf.format(r.dislikes)}
                 </span>
               </li>
             ))}

@@ -22,7 +22,7 @@ export function headerCta(phase: Phase): { label: string; href: string } {
   if (phase === "nominate") return { label: "立即提名", href: "/nominate" };
   if (phase === "pre") return { label: "常見問題", href: "/#faq" };
   if (phase === "vote") return { label: "立即投票", href: "/vote" };
-  if (phase === "closed") return { label: "直播預告", href: "/#live" };
+  if (phase === "closed") return { label: "目前結果", href: "/#results" };
   return { label: "查看活動方式", href: "/#how" };
 }
 
@@ -101,7 +101,7 @@ export default function SiteChrome({
             >
               首頁
             </Link>
-            <Link href="/#background">前情提要</Link>
+            {votePhase ? null : <Link href="/#background">前情提要</Link>}
             {phaseOne ? (
               <>
                 <Link href="/#board">候選名單</Link>
@@ -109,8 +109,9 @@ export default function SiteChrome({
               </>
             ) : votePhase ? (
               <>
-                <Link href="/#leaderboard">排行榜</Link>
-                <Link href="/#reasons">熱門理由</Link>
+                {/* spec v8 §5: 排行榜 -> 目前結果 (this is not a final ranking). */}
+                <Link href="/#results">目前結果</Link>
+                <Link href="/candidates">遺珠之憾</Link>
                 <Link href="/#rules">投票規則</Link>
               </>
             ) : (

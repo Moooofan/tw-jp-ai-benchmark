@@ -93,6 +93,8 @@ export default function BallotClient({
   const [emailOk, setEmailOk] = useState(false);
   const [checking, setChecking] = useState(false);
   const [done, setDone] = useState<DonePick[] | null>(null);
+  /** True when today's ballot was already used (已達每日上限). */
+  const [limit, setLimit] = useState(false);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -155,6 +157,7 @@ export default function BallotClient({
     checkedFor.current = v.toLowerCase();
     const state = data as MyVoteState;
     if (state.voted_today) {
+      setLimit(true);
       setDone(state.today);
       return false;
     }
@@ -260,7 +263,12 @@ export default function BallotClient({
         <span className="okmark" aria-hidden="true">
           ✓
         </span>
-        <h3>今天的票已送出！</h3>
+        {/* 投票完成 / 已達每日上限, verbatim (locked doc v1.0 §介面微文案). */}
+        <h3>
+          {limit
+            ? "你今天的選票已使用完畢，明天可以再次參與。"
+            : "已收到你的選擇。謝謝你把可借鏡的方法說清楚。"}
+        </h3>
         <ol className="donepicks">
           {done.map((d, i) => (
             <li key={d.domain}>
@@ -277,17 +285,17 @@ export default function BallotClient({
         </ol>
         <Countdown />
         <div className="after">
-          <Link className="btn btn--red" href="/#leaderboard">
-            看排行榜
+          <Link className="btn btn--red" href="/#results">
+            看目前結果
             <Icon icon={ArrowRight} />
           </Link>
           <Link className="btn btn--ghost" href="/#reasons">
-            看熱門理由
+            為其他人的理由按讚
           </Link>
         </div>
         {names ? (
           <ShareRow
-            text={`我投給了 ${names}：過去五年最值得作為日本市場發展案例的台灣新創。你呢？`}
+            text={`我投給了 ${names}：如果你準備進入日本市場，哪一家台灣企業的做法最值得借鏡？`}
           />
         ) : null}
       </div>
@@ -339,9 +347,13 @@ export default function BallotClient({
             onPick={addPick}
             disabled={!emailOk || slots.length >= MAX_PICKS}
             pickedDomains={slots.map((s) => s.domain).filter(Boolean)}
+            allowNew={false}
           />
+          {/* spec v8 §3: no nominating while voting — 遺珠 has its own flow. */}
           <p className="fine">
-            找不到想投的公司嗎？直接搜尋、選「直接提名」就能同時提名它並投下這一票。
+            找不到想投的公司嗎？到{" "}
+            <Link href="/candidates">遺珠之憾</Link>{" "}
+            提出新的企業案例；取得 11 個有效支持後，它就會進入正式投票池。
           </p>
 
           <ol className="slots" aria-label="我的選票">
@@ -382,7 +394,7 @@ export default function BallotClient({
                   </div>
                   <textarea
                     aria-label={`為什麼投給 ${s.display_name}`}
-                    placeholder="為什麼投給它？一句話就好（10–50 字）"
+                    placeholder="請寫下具體做法，而不只是一句「我喜歡這家公司」。"
                     value={s.reason}
                     rows={2}
                     maxLength={80}
@@ -454,6 +466,10 @@ export default function BallotClient({
             <hr />
             <p className="fine">
               Email 不公開，只用來確認一人一天一張票。
+            </p>
+            <p className="fine">
+              找不到想投的公司？可以到 <Link href="/candidates">遺珠之憾</Link>{" "}
+              提出新的企業案例。
             </p>
             <p className="fine">{DISCLAIMER}</p>
           </aside>

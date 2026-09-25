@@ -388,11 +388,13 @@ end;
 $$`,
 );
 
-// v6n (c): with the phase forced to vote inside the transaction, a name:
-// company is a candidate: vote_candidates lists it, cast_ballot accepts it,
-// company_detail resolves the key.
+// v6n (c) + v8 §3: with the phase forced to vote inside the transaction, a
+// POOLED name: company is a candidate — vote_candidates lists it, cast_ballot
+// accepts it, company_detail resolves the key. Before it is pooled the very
+// same company is invisible to voters and cast_ballot refuses it, which is the
+// v7c "create a company while voting" path that v8 removed.
 rollbackTest(
-  "rollback test: cast_ballot accepts a name: candidate in phase vote (v6n)",
+  "rollback test: the pool gate, then cast_ballot accepts a pooled name: candidate (v6n/v8)",
   `do $$
 declare b json; d json; ph text;
 begin
@@ -402,8 +404,23 @@ begin
   update public.settings set phase_mode = 'manual', phase = 'vote' where id = 1;
   ph := public.effective_phase();
   execute 'set local role anon';
+  if exists (select 1 from public.vote_candidates('rls probe') v where v.domain = 'name:rls probe co') then
+    raise exception 'ROLLBACK_BAD an unpooled company is offered to voters';
+  end if;
+  begin
+    perform public.cast_ballot('rls-probe-gate@example.com', '[{"domain":"name:rls probe co","reason":"未入池的公司不應該可以被投票"}]'::jsonb);
+    raise exception 'ROLLBACK_BAD cast_ballot accepted an unpooled company';
+  exception when others then
+    if sqlerrm like 'ROLLBACK_BAD%' then raise; end if;
+    if sqlerrm not like '%待確認遺珠%' then
+      raise exception 'ROLLBACK_BAD pool-gate message: %', sqlerrm;
+    end if;
+  end;
+  execute 'reset role';
+  update public.companies set pool_entered_at = now() where domain = 'name:rls probe co';
+  execute 'set local role anon';
   if not exists (select 1 from public.vote_candidates('rls probe') v where v.domain = 'name:rls probe co') then
-    raise exception 'ROLLBACK_BAD vote_candidates misses the name: company (phase=%)', ph;
+    raise exception 'ROLLBACK_BAD vote_candidates misses the pooled name: company (phase=%)', ph;
   end if;
   b := public.cast_ballot('rls-probe@example.com', '[{"domain":"name:rls probe co","reason":"只有名稱的候選公司也可以被投票"}]'::jsonb);
   d := public.company_detail('name:rls probe co');
@@ -448,29 +465,41 @@ await mustErrorLater("admin_merge_company() rejects anon", () =>
   sb.rpc("admin_merge_company", { p_from: "a.example", p_into: "b.example" }),
 );
 {
-  // board() must never publish raw counts: total_companies is the only
-  // integer; hot[].share is a 0–1 fraction (1 for the top company is fine).
+  // Phase 1 is a nomination feed, not a contest. The locked doc allows the
+  // nomination COUNT to be shown as context (「可顯示提名次數，但不放名次序號」)
+  // — v7k-order/v7n-ramp put it in hot[].noms — but a rank numeral must never
+  // leave the RPC. total_companies and hot[].noms are the only raw integers;
+  // hot[].share is a 0–1 fraction (1 for the top company is fine).
   const { data, error } = await sb.rpc("board");
   const offenders = [];
+  const ranks = [];
   const walk = (v, path) => {
+    const key = path[path.length - 1];
     if (typeof v === "number") {
-      const key = path[path.length - 1];
       if (key === "total_companies" && path.length === 1) return;
+      if (key === "noms" && path[0] === "hot") return;
       if (key === "share" && v >= 0 && v <= 1) return;
       offenders.push(`${path.join(".")}=${v}`);
     } else if (Array.isArray(v))
       v.forEach((x, i) => walk(x, [...path, String(i)]));
-    else if (v && typeof v === "object")
-      for (const [k, x] of Object.entries(v)) walk(x, [...path, k]);
+    else if (v && typeof v === "object") {
+      for (const [k, x] of Object.entries(v)) {
+        if (k === "rank") ranks.push(path.join("."));
+        walk(x, [...path, k]);
+      }
+    }
   };
   walk(data, []);
   const keys = data ? Object.keys(data).sort().join(",") : "";
   record(
-    "board() has no counts other than total_companies",
-    !error && Number.isInteger(data?.total_companies) && offenders.length === 0,
+    "board() publishes no rank numerals and no counts beyond total_companies/noms",
+    !error &&
+      Number.isInteger(data?.total_companies) &&
+      offenders.length === 0 &&
+      ranks.length === 0,
     error
       ? error.message
-      : `keys: ${keys}${offenders.length ? `; offenders: ${offenders.join(", ")}` : ""}`,
+      : `keys: ${keys}${offenders.length ? `; offenders: ${offenders.join(", ")}` : ""}${ranks.length ? `; rank at ${ranks.join(", ")}` : ""}`,
   );
 }
 
@@ -742,6 +771,130 @@ for (const [fn, args] of [
   ["admin_set_shortlist_enforced", { p_enabled: true }],
 ]) {
   await mustErrorLater(`${fn}() rejects anon`, () => sb.rpc(fn, args));
+}
+
+// ------------------------------------------------------- v8 Phase 2 final
+// candidate_supports holds raw emails, so it gets the same treatment as
+// ballots: RLS on, no grant, reachable only through the security-definer RPCs.
+await denied(
+  "anon cannot read candidate_supports",
+  sb.from("candidate_supports").select("*").limit(1),
+);
+await mustErrorLater("anon cannot insert candidate_supports", () =>
+  sb.from("candidate_supports").insert({
+    domain: "rls-probe.example",
+    email_key: "rls-probe@example.com",
+    email: "rls-probe@example.com",
+  }),
+);
+await mustErrorLater("anon cannot delete candidate_supports", () =>
+  sb.from("candidate_supports").delete().eq("domain", "rls-probe.example"),
+);
+
+// The 遺珠 read paths are public.
+await allowed("anon can call pending_candidates()", sb.rpc("pending_candidates"));
+await allowed(
+  "anon can call candidate_detail()",
+  sb.rpc("candidate_detail", { p_domain: "rls-probe.example" }),
+);
+
+// propose_candidate / support_candidate are public WRITE paths, so they are
+// probed with input that must be rejected by their own validation — proving
+// anon reaches them (not a permission error) while writing nothing.
+{
+  const { error } = await sb.rpc("propose_candidate", {
+    p_name: "rls-probe",
+    p_url: "https://rls-probe.example",
+    p_email: "not-an-email",
+    p_note: null,
+  });
+  record(
+    "propose_candidate() is reachable by anon and validates the email",
+    !!error && error.message.includes("請確認 Email 格式。"),
+    error ? error.message : "unexpectedly succeeded",
+  );
+}
+{
+  const { error } = await sb.rpc("propose_candidate", {
+    p_name: "rls-probe",
+    p_url: "not a domain!",
+    p_email: "rls-probe@example.com",
+    p_note: null,
+  });
+  record(
+    "propose_candidate() rejects a bad website",
+    !!error && error.message.includes("請輸入正確的官方網站"),
+    error ? error.message : "unexpectedly succeeded",
+  );
+}
+{
+  const { error } = await sb.rpc("support_candidate", {
+    p_domain: "rls-probe.example",
+    p_email: "rls-probe@example.com",
+  });
+  record(
+    "support_candidate() is reachable by anon and refuses an unknown company",
+    !!error && error.message.includes("找不到這家公司。"),
+    error ? error.message : "unexpectedly succeeded",
+  );
+}
+
+// The new admin surface joins the admin_*-rejects-anon list.
+for (const [fn, args] of [
+  ["admin_candidate_supports", { p_domain: null }],
+  ["admin_set_vote_base", { p_domain: "rls-probe.example", p_base: 1 }],
+]) {
+  await mustErrorLater(`${fn}() rejects anon`, () => sb.rpc(fn, args));
+}
+
+// §3/§5: the board is pooled companies only and carries the 分類 tag; a
+// pending 遺珠 must never appear in it.
+{
+  const { data: board } = await sb.rpc("vote_board");
+  const rows = board?.leaderboard ?? [];
+  record(
+    "vote_board() leaderboard rows carry a sector tag",
+    rows.length > 0 && rows.every((r) => typeof r.sector === "string" && r.sector !== ""),
+    `${rows.length} row(s)`,
+  );
+  const { data: pending } = await sb.rpc("pending_candidates");
+  const pendingDomains = new Set((pending ?? []).map((r) => r.domain));
+  const leaked = rows.filter((r) => pendingDomains.has(r.domain));
+  record(
+    "no pending 遺珠 appears in the result area",
+    leaked.length === 0,
+    `${pendingDomains.size} pending, ${leaked.length} leaked`,
+  );
+  record(
+    "pending_candidates() reports a positive remaining for every row",
+    (pending ?? []).every((r) => r.remaining > 0 && r.supports >= 0),
+    JSON.stringify(
+      (pending ?? []).map((r) => `${r.domain}:${r.supports}/${r.remaining}`),
+    ),
+  );
+  record(
+    "vote_board() still exposes no email",
+    !/@/.test(JSON.stringify(board ?? {})),
+    "checked leaderboard, reasons and resonance",
+  );
+}
+
+// The five doc acceptance cases plus the two paths §3 removed, as one aborted
+// transaction.
+rollbackTest(
+  "rollback test: v8 vote maths, 遺珠 threshold and the removed create-while-voting path",
+  readFileSync("supabase/tests/v8-vote-maths.sql", "utf8").replace(
+    /^[\s\S]*?(?=^do )/m,
+    "",
+  ),
+);
+
+// The probes above must not have created a 遺珠 either.
+{
+  const { data } = await sb.rpc("candidate_detail", {
+    p_domain: "rls-probe.example",
+  });
+  record("no probe candidate exists", data == null, JSON.stringify(data));
 }
 
 // Nothing must have been written by the probes above.

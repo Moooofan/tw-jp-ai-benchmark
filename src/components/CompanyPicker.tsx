@@ -54,6 +54,12 @@ type Props = {
   disabled?: boolean;
   pickedDomains: string[];
   autoFocus?: boolean;
+  /**
+   * Whether a company that is not in the pool may be created from the ballot.
+   * False on `/vote` since spec v8 §3: the "nominate while voting" path is
+   * removed and new companies go through the 遺珠 flow on `/candidates`.
+   */
+  allowNew?: boolean;
 };
 
 /** Copy of NominateClient's CompanyCard, reused for the confirm sub-step. */
@@ -96,6 +102,7 @@ export default function CompanyPicker({
   disabled = false,
   pickedDomains,
   autoFocus = false,
+  allowNew = true,
 }: Props) {
   const supabase = getBrowserClient();
   const [step, setStep] = useState<Step>({ kind: "search" });
@@ -122,7 +129,7 @@ export default function CompanyPicker({
           setMatches((data as CompanyMatch[] | null) ?? []);
           setSearched(name.trim());
         })();
-        if (q.length >= NAME_MIN) {
+        if (allowNew && q.length >= NAME_MIN) {
           void (async () => {
             try {
               const res = await fetch(
@@ -149,13 +156,14 @@ export default function CompanyPicker({
       abort.abort();
       clearTimeout(t);
     };
-  }, [name, supabase]);
+  }, [allowNew, name, supabase]);
 
   // Offer "nominate the typed name" once results for exactly this text are
   // back and none of them is an exact display name / alias match.
   const typed = cleanName(name);
   const typedLower = typed.toLowerCase();
   const offerTyped =
+    allowNew &&
     typed.length >= NAME_MIN &&
     searched === name.trim() &&
     !matches.some(
@@ -166,7 +174,7 @@ export default function CompanyPicker({
 
   // Public-data suggestions we do not already list ourselves, and not one
   // already sitting in the voter's picks.
-  const extras = externals.filter(
+  const extras = (allowNew ? externals : []).filter(
     (e) =>
       !pickedDomains.includes(e.domain) &&
       !matches.some(

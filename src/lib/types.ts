@@ -241,6 +241,8 @@ export type LeaderboardRow = {
   votes: number;
   reasons: number;
   movement: Movement;
+  /** 分類 tag (spec v8 §5). Optional: older `vote_board()` builds omit it. */
+  sector?: string | null;
 };
 
 /** What `vote_board` returns. */
@@ -355,4 +357,39 @@ export type AdminShortlistRow = {
   shortlist_rank: number | null;
   locked: boolean;
   locked_at: string | null;
+};
+
+// ------------------------------------------------ v8: 遺珠 (candidate supports)
+
+/** How many distinct emails a 待確認遺珠 needs before it enters the pool. */
+export const SUPPORT_THRESHOLD = 11;
+
+/** One row of `pending_candidates()` (spec v8 §3). */
+export type PendingCandidate = {
+  domain: string;
+  display_name: string;
+  supports: number;
+  remaining: number;
+  proposed_at: string | null;
+  proposed_note: string;
+};
+
+/** `candidate_detail(domain)`: one pending or already pooled candidate. */
+export type CandidateDetail = PendingCandidate & { in_pool: boolean };
+
+/** What `propose_candidate` returns. */
+export type ProposeResult = {
+  domain: string;
+  display_name: string;
+  supports: number;
+  remaining: number;
+  in_pool: boolean;
+};
+
+/** What `support_candidate` returns. */
+export type SupportResult = {
+  supports: number;
+  remaining: number;
+  in_pool: boolean;
+  just_entered: boolean;
 };

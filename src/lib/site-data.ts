@@ -1,10 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 import { withPreview } from "@/lib/phase";
 import {
+  SUPPORT_THRESHOLD,
   EMPTY_BOARD,
   EMPTY_VOTE_BOARD,
   type Board,
+  type CandidateDetail,
   type CompanyDetail,
+  type PendingCandidate,
   type VoteBoard,
   type PublicFinalist,
   type PublicPost,
@@ -115,4 +118,42 @@ export async function loadReasonCorpus(domain: string | null): Promise<string[]>
     p_domain: domain,
   });
   return (data as string[] | null) ?? [];
+}
+
+/* ------------------------------------------------------------- v8: 遺珠 */
+
+/** Fills in what an older RPC build may omit, so the page never crashes. */
+function normalizeCandidate(raw: Record<string, unknown>): PendingCandidate {
+  const supports = Number(raw.supports ?? 0);
+  const remaining =
+    raw.remaining === undefined || raw.remaining === null
+      ? Math.max(0, SUPPORT_THRESHOLD - supports)
+      : Number(raw.remaining);
+  return {
+    domain: String(raw.domain ?? ""),
+    display_name: String(raw.display_name ?? raw.domain ?? ""),
+    supports,
+    remaining,
+    proposed_at: (raw.proposed_at as string | null) ?? null,
+    proposed_note: String(raw.proposed_note ?? ""),
+  };
+}
+
+/** `pending_candidates()`: 待確認遺珠, most supported first (spec v8 §3). */
+export async function loadPendingCandidates(): Promise<PendingCandidate[]> {
+  const { data } = await publicClient().rpc("pending_candidates");
+  const rows = (data as Record<string, unknown>[] | null) ?? [];
+  return rows.map(normalizeCandidate);
+}
+
+/** `candidate_detail(domain)`, or null when nothing answers to that domain. */
+export async function loadCandidateDetail(
+  domain: string,
+): Promise<CandidateDetail | null> {
+  const { data } = await publicClient().rpc("candidate_detail", {
+    p_domain: domain,
+  });
+  const raw = data as Record<string, unknown> | null;
+  if (!raw || !raw.domain) return null;
+  return { ...normalizeCandidate(raw), in_pool: Boolean(raw.in_pool) };
 }

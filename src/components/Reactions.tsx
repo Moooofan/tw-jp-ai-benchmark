@@ -17,8 +17,14 @@ import { useParticipantEmail } from "./ParticipantEmail";
 
 const PROMPT = {
   title: "留下你的 Email",
-  body: "推或噓之前，請留下 Email。同一個 Email 對同一則理由只能表態一次。",
+  body: "按讚或倒讚之前，請留下 Email。同一個 Email 對同一則理由只能表態一次。",
 };
+
+/** 倒讚說明 (locked doc v1.0 §介面微文案), used verbatim wherever 倒讚 appears. */
+export const DISLIKE_NOTE = "反對反應僅供回饋，不會扣除公司票數。";
+
+/** Spec v8 §1:每一則理由每滿 10 個有效按讚，替該公司增加 1 票. */
+const LIKES_PER_VOTE = 10;
 
 type Stance = 0 | 1 | -1;
 
@@ -167,6 +173,8 @@ export function ReasonCard({
     : own
       ? "不能對自己的理由表態"
       : undefined;
+  // 按讚滿 10 (locked doc v1.0 §介面微文案). Dislikes never enter this maths.
+  const bonus = Math.floor(counts.likes / LIKES_PER_VOTE);
 
   function click(value: 1 | -1) {
     if (!ctx || disabled) return;
@@ -214,20 +222,23 @@ export function ReasonCard({
           onClick={() => click(1)}
         >
           <ThumbsUp size={16} strokeWidth={1.75} aria-hidden="true" />
-          推<span className="rx__n">{counts.likes}</span>
+          按讚<span className="rx__n">{counts.likes}</span>
         </button>
         <button
           type="button"
           className={stance === -1 ? "rx rx--down on" : "rx rx--down"}
           aria-pressed={stance === -1}
           disabled={disabled}
-          title={title}
+          title={title ?? DISLIKE_NOTE}
           onClick={() => click(-1)}
         >
           <ThumbsDown size={16} strokeWidth={1.75} aria-hidden="true" />
-          噓<span className="rx__n">{counts.dislikes}</span>
+          倒讚<span className="rx__n">{counts.dislikes}</span>
         </button>
       </div>
+      {bonus > 0 ? (
+        <p className="rcard__bonus">這則理由已替公司增加 {bonus} 票。</p>
+      ) : null}
       {err ? <p className="err">{err}</p> : null}
     </article>
   );

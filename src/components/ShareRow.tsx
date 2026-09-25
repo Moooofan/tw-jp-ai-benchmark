@@ -7,9 +7,10 @@ const DEFAULT_TEXT =
 
 export default function ShareRow({
   text: TEXT = DEFAULT_TEXT,
-}: { text?: string } = {}) {
+  path = "/",
+}: { text?: string; path?: string } = {}) {
   const [copied, setCopied] = useState(false);
-  const url = typeof window === "undefined" ? "" : window.location.origin + "/";
+  const url = typeof window === "undefined" ? "" : window.location.origin + path;
   const open = (u: string) => window.open(u, "_blank", "noopener");
   return (
     <div className="share">

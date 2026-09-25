@@ -1,7 +1,32 @@
+import type { Metadata } from "next";
 import HomePhase1 from "@/components/HomePhase1";
 import { isPhaseOne, isVotePhase, phaseOneStats, previewFromQuery, publicStats, reveal } from "@/lib/phase";
-import { loadReasonCorpus, loadSiteData, loadVoteBoard } from "@/lib/site-data";
+import { loadReasonCorpus, loadSiteData, loadStats, loadVoteBoard } from "@/lib/site-data";
 import { wordCloud } from "@/lib/wordcloud";
+
+/**
+ * Phase 2 carries the document's own question (spec v8 §4). Every other phase
+ * returns nothing, so the layout's Phase 1 metadata is left byte-identical.
+ */
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}): Promise<Metadata> {
+  const sp = searchParams ? await searchParams : undefined;
+  const loaded = await loadStats();
+  const phase = previewFromQuery(sp) ?? loaded.phase;
+  if (!isVotePhase(phase)) return {};
+  const title =
+    "如果你準備進入日本市場，哪一家台灣企業的做法最值得借鏡？｜Taiwan → Japan 2026";
+  const description =
+    "無論是剛起步的新創、平台型企業、上市櫃公司，或已經成熟的品牌，只要它正在或已經進入日本市場，就可能有值得我們學習的方法。";
+  return {
+    title,
+    description,
+    openGraph: { title, description, type: "website" },
+  };
+}
 
 // Board refreshes every 5 minutes; the rank snapshot behind it is hourly.
 // The vote-phase word cloud is cached with the page (spec v7b §1.6).

@@ -100,6 +100,17 @@ begin
       tie_a.rank, tie_b.rank;
   end if;
 
+  -- v8 §2: Phase 1 nominees are in the official pool, and from v8 on cast_ballot
+  -- refuses anything that is not. This file predates v8 and builds its fixtures
+  -- with raw inserts, so it applies the same backfill rule here, before it starts
+  -- casting ballots. qa-v6s-seed.example is created further down and deliberately
+  -- never nominated, so it stays out of the pool.
+  update public.companies c
+     set pool_entered_at = now()
+   where c.domain like 'qa-v6s-%'
+     and c.pool_entered_at is null
+     and exists (select 1 from public.nominations n where n.domain = c.domain);
+
   -- (5) No lock yet → Phase 2 falls back to the live top 10.
   if (select count(*) from public.shortlist) <> 0 then
     raise exception 'FAIL: shortlist should still be empty';

@@ -5286,3 +5286,1669 @@ end;
 $$;
 grant execute on function public.board() to anon, authenticated;
 -- END v6m
+
+-- BEGIN v7i-entity
+-- Entity audit 2026-09-24 (Reference/entity-audit.csv, each row verified against the
+-- company's own site): a nominee is a COMPANY; a product is an alias of its company.
+-- Product rows are merged into the company entity, scraped page titles are cleaned,
+-- and nominees whose eligibility a human must judge are flagged (never deleted).
+
+insert into public.companies (domain, display_name, aliases, status, is_seed, sector, listing)
+select 'kkcompany.com', 'KKCompany 科科科技',
+       array['KKCompany','科科科技','KKCompany Technologies','KKBOX','BlendVision','KKStream','KKCompany Japan合同会社','ブレンドビジョン'],
+       'active', true, c.sector, c.listing
+  from public.companies c where c.domain = 'blendvision.com'
+on conflict (domain) do nothing;
+
+insert into public.companies (domain, display_name, aliases, status, is_seed, sector, listing)
+select '25sprout.com', '25sprout 新芽網路',
+       array['25sprout','新芽網路','新芽網路股份有限公司','SurveyCake','SurveyCake問卷','サーベイケーキ株式会社'],
+       'active', true, c.sector, c.listing
+  from public.companies c where c.domain = 'surveycake.com'
+on conflict (domain) do nothing;
+
+insert into public.companies (domain, display_name, aliases, status, is_seed, needs_review)
+values ('name:哇美語文理技藝短期補習班', '哇美語文理技藝短期補習班', array['哇美語'], 'active', false, true)
+on conflict (domain) do nothing;
+
+do $$
+declare m record;
+begin
+  for m in select * from (values
+      ('blendvision.com', 'kkcompany.com'),
+      ('surveycake.com',  '25sprout.com'),
+      ('facebook.com',    'name:哇美語文理技藝短期補習班')
+    ) as t(src, dst)
+  loop
+    if not exists (select 1 from public.companies where domain = m.dst)
+       or not exists (select 1 from public.companies where domain = m.src) then
+      continue;
+    end if;
+    update public.nominations set domain = m.dst where domain = m.src;
+    update public.ballot_picks p set domain = m.dst
+      where p.domain = m.src
+        and not exists (select 1 from public.ballot_picks q
+                         where q.ballot_id = p.ballot_id and q.domain = m.dst);
+    delete from public.ballot_picks where domain = m.src;
+    update public.companies dst
+       set aliases = (select array(select distinct e
+                                     from unnest(dst.aliases || src.aliases
+                                                 || array[src.display_name, src.domain]) e
+                                    where e is not null and btrim(e) <> ''))
+      from public.companies src
+     where dst.domain = m.dst and src.domain = m.src;
+    update public.companies
+       set status = 'hidden', merged_into = m.dst
+     where domain = m.src;
+  end loop;
+end $$;
+
+do $$
+declare r record;
+begin
+  for r in select * from (values
+      ('gogolook.com',    'Gogolook 走著瞧（Whoscall）', array['Whoscall','走著瞧']),
+      ('carmochi.com',    'Autopass 麻吉行得通（車麻吉）', array['車麻吉','CarMochi','麻吉行得通股份有限公司']),
+      ('name:瑞沃運動',   '鍇睿國際（瑞沃運動）',         array['瑞沃運動','鍇睿國際股份有限公司']),
+      ('profetai.com',    'Profet AI 杰倫智能',           array['Profet AI','杰倫智能','杰倫智能股份有限公司']),
+      ('alleypin.com',    'AlleyPin 翔評互動',            array['AlleyPin','翔評互動','翔評互動股份有限公司']),
+      ('cake.me',         'Cake（川陀數位）',             array['CakeResume','川陀數位有限公司']),
+      ('furbo.com',       'Tomofun 友愉（Furbo）',        array['Furbo','友愉股份有限公司']),
+      ('getcubo.com',     '雲云科技（Cubo AI）',          array['Cubo AI','CuboAi','雲云科技股份有限公司']),
+      ('turingspace.co',  'Turing Space 圖靈鏈',          array['Turing Certs','台灣圖靈鏈股份有限公司']),
+      ('sparkful.app',    'SPARKFUL（原 Fourdesire）',    array['Fourdesire','四合願']),
+      ('icook.tw',        'TNL Mediagene（iCook 愛料理）', array['iCook','愛料理','關鍵評論網股份有限公司']),
+      ('chatime.com.tw',  '六角國際 La Kaffa（日出茶太）', array['Chatime','日出茶太','六角國際事業股份有限公司']),
+      ('coco-tea.com',    '億可國際飲食（CoCo 都可）',    array['CoCo都可','億可國際飲食股份有限公司']),
+      ('yifangtea.com',   '墨力國際（一芳水果茶）',       array['一芳','YiFang','墨力國際股份有限公司']),
+      ('tenren.com.tw',   '天仁茶業（天仁茗茶）',         array['天仁茗茶','Ten Ren','天仁茶業股份有限公司']),
+      ('thealley.world',  '有樂 The Alley（鹿角巷）',     array['THE ALLEY','鹿角巷','有樂股份有限公司'])
+    ) as t(dom, name, extra)
+  loop
+    update public.companies
+       set display_name = r.name,
+           aliases = (select array(select distinct e
+                                     from unnest(aliases || r.extra || array[display_name]) e
+                                    where e is not null and btrim(e) <> ''))
+     where domain = r.dom and display_name <> r.name;
+  end loop;
+end $$;
+
+-- TenMax belongs to funP 媒體集團, not 聯合線上 (verified on tenmax.io).
+update public.companies
+   set aliases = (select array(select distinct e from unnest(aliases || array['funP 媒體集團','funP']) e
+                                where e is not null and btrim(e) <> '' and e <> '聯合線上'))
+ where domain = 'tenmax.io';
+
+-- Eligibility to be judged by a human; nothing is deleted here.
+update public.companies set needs_review = true
+ where domain in ('jin-din-rou.net','washinmura.jp','applentoken.app','idaeo.ai','navide.dev',
+                  'nyio.com.tw','gong-cha.com.tw','tigersugar.com','tp-tea.com')
+   and needs_review is distinct from true;
+-- END v7i-entity
+
+-- BEGIN v7j-reseed
+-- Restores the demo nomination volume the owner asked for on 9/17 and that I
+-- wrongly deleted on 9/24. Same spec and same generator as the original run;
+-- two domains follow the v7i-entity merges (whoscall -> gogolook, surveycake -> 25sprout).
+-- Idempotent: a company that already has seed-cid rows is skipped.
+do $$
+declare
+  spec text[][] := array[
+    array['appier.com','38'], array['kkday.com','31'], array['pinkoi.com','27'],
+    array['gogoro.com','24'], array['myfunnow.com','21'], array['gogolook.com','18'],
+    array['ikala.ai','16'], array['kdan.com','14'], array['cycraft.com','12'],
+    array['dintaifung.com.tw','11'], array['tm-robot.com','9'], array['health2sync.com','8'],
+    array['awoo.ai','7'], array['25sprout.com','6'], array['uspace.city','5'],
+    array['mobagel.com','5'], array['gliacloud.com','4'], array['teamt5.org','4'],
+    array['ragic.com','3'], array['cake.me','3']
+  ];
+  i int; k int; n int;
+begin
+  for i in 1 .. array_length(spec, 1) loop
+    if exists (select 1 from public.companies c where c.domain = spec[i][1] and c.status <> 'hidden')
+       and not exists (select 1 from public.nominations x
+                        where x.domain = spec[i][1] and x.client_id like 'seed-cid-%') then
+      n := spec[i][2]::int;
+      for k in 1 .. n loop
+        insert into public.nominations (domain, client_id, typed_name, created_at)
+        values (spec[i][1], 'seed-cid-' || i || '-' || k, null,
+                now() - ((k % 6) || ' days')::interval - ((k * 37) % 1440 || ' minutes')::interval);
+      end loop;
+    end if;
+  end loop;
+end $$;
+-- END v7j-reseed
+
+-- BEGIN v7k-order
+-- Feed order: most-nominated first (owner call 2026-09-24, overriding the
+-- 9/24 note that asked for first-nominated-first). Still no rank numbers and
+-- no ranking wording in the UI.
+-- Phase 1 presentation is a nomination feed, not a contest (CEO note,
+-- 2026-09-24): the public list is ordered by first nomination, newest first;
+-- counts stay as context only. needs_review flags eligibility questions.
+alter table public.companies add column if not exists needs_review boolean not null default false;
+create or replace function public.board()
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_latest timestamptz;
+  v_prev timestamptz;
+  v_top int;
+  v_live_top int;
+begin
+  if coalesce((select max(taken_at) from public.board_snapshots), '-infinity'::timestamptz)
+     < now() - interval '60 minutes' then
+    perform public.take_board_snapshot();
+  end if;
+
+  select max(taken_at) into v_latest from public.board_snapshots;
+  select max(n) into v_live_top from (
+    select count(*) as n
+    from public.nominations nm
+    join public.companies c on c.domain = nm.domain
+    where c.status <> 'hidden' and c.merged_into is null
+    group by c.domain
+  ) t;
+  select max(taken_at) into v_prev from public.board_snapshots where taken_at < v_latest;
+  select max(s.n) into v_top
+  from public.board_snapshots s
+  join public.companies c on c.domain = s.domain
+  where s.taken_at = v_latest and c.status <> 'hidden' and c.merged_into is null;
+
+  return json_build_object(
+    'total_companies', (
+      select count(distinct nm.domain)::int
+      from public.nominations nm
+      join public.companies c on c.domain = nm.domain
+      where c.status <> 'hidden' and c.merged_into is null
+    ),
+    'recent', coalesce((
+      select json_agg(json_build_object(
+               'domain', r.domain,
+               'display_name', r.display_name,
+               'first_nominated_at', r.first_nominated_at
+             ) order by r.first_nominated_at desc)
+      from (
+        select c.domain, c.display_name, min(nm.created_at) as first_nominated_at
+        from public.nominations nm
+        join public.companies c on c.domain = nm.domain
+        where c.status <> 'hidden' and c.merged_into is null
+        group by c.domain, c.display_name
+        order by min(nm.created_at) desc
+        limit 8
+      ) r
+    ), '[]'::json),
+    'hot', coalesce((
+      select json_agg(json_build_object(
+               'domain', h.domain,
+               'display_name', h.display_name,
+               'share', h.share,
+               'movement', h.movement,
+               'noms', h.n,
+               'sector', h.sector,
+               'listing', h.listing,
+               'first_at', h.first_at
+             ) order by h.n desc, h.first_at desc)
+      from (
+        select l.domain, l.display_name, l.rank, l.n, l.sector, l.listing, l.first_at,
+               greatest(0.05, round(l.n::numeric * 20 / nullif(v_live_top, 0)) / 20)::float8 as share,
+               case
+                 when v_latest is null or p.rank is null then 'new'
+                 when p.rank > l.rank then 'up'
+                 when p.rank < l.rank then 'down'
+                 else 'same'
+               end as movement
+        from (
+          select c.domain, c.display_name,
+                 coalesce(nullif(btrim(c.sector), ''), '未分類') as sector,
+                 coalesce(nullif(btrim(c.listing), ''), 'unknown') as listing,
+                 count(*)::int as n,
+                 min(nm.created_at) as first_at,
+                 (row_number() over (order by count(*) desc, min(nm.created_at) asc, c.domain))::int as rank
+          from public.nominations nm
+          join public.companies c on c.domain = nm.domain
+          where c.status <> 'hidden' and c.merged_into is null
+          group by c.domain, c.display_name, c.sector, c.listing
+        ) l
+        left join public.board_snapshots p on p.taken_at = v_latest and p.domain = l.domain
+        order by l.n desc, l.first_at asc
+        limit 500
+      ) h
+    ), '[]'::json),
+    'updated_at', now(),
+    'snapshot_at', v_latest
+  );
+end;
+$$;
+grant execute on function public.board() to anon, authenticated;
+-- END v7k-order
+
+-- BEGIN v7l-classify
+-- Classification gaps filled from Reference/entity-classify-gaps.csv (each verified
+-- against the company's own site or a public registry page).
+update public.companies set sector='旅遊',   listing='private' where domain='luggagent.com'  and sector is null;
+update public.companies set sector='金融科技', listing='private' where domain='tokenz.one'     and sector is null;
+update public.companies set sector='IT服務',  listing='private' where domain='freedom.net.tw' and sector is null;
+update public.companies set sector='顧問創投', listing='private' where domain='leadbestgroup.com' and sector is null;
+update public.companies set sector='教育',   listing='private' where domain='nyio.com.tw'    and sector is null;
+update public.companies set sector='教育',   listing='private' where domain='name:哇美語文理技藝短期補習班' and sector is null;
+-- 自由系統 (2002) and 紐約國際幼兒園 / 哇美語 are not startups; Tokenz is Tokyo-HQ'd. Flag, do not delete.
+update public.companies set needs_review=true where domain in ('freedom.net.tw','tokenz.one') and needs_review is distinct from true;
+-- END v7l-classify
+
+-- BEGIN v7m-topup
+-- Owner-set nomination volume for three companies (2026-09-24). Tops each one up
+-- to its target total; re-running does nothing once the target is reached.
+do $$
+declare
+  spec text[][] := array[
+    array['ikala.ai','63'], array['myfunnow.com','43'], array['uspace.city','38']
+  ];
+  i int; k int; have int; want int;
+begin
+  for i in 1 .. array_length(spec, 1) loop
+    if exists (select 1 from public.companies c where c.domain = spec[i][1] and c.status <> 'hidden') then
+      want := spec[i][2]::int;
+      select count(*) into have from public.nominations where domain = spec[i][1];
+      for k in 1 .. greatest(want - have, 0) loop
+        insert into public.nominations (domain, client_id, typed_name, created_at)
+        values (spec[i][1], 'seed-cid-t' || i || '-' || k, null,
+                now() - ((k % 6) || ' days')::interval - ((k * 53) % 1440 || ' minutes')::interval);
+      end loop;
+    end if;
+  end loop;
+end $$;
+-- END v7m-topup
+
+-- BEGIN v7m-undo
+-- Owner asked to go back to the pre-top-up numbers (2026-09-24). Removes only the
+-- v7m-topup rows; the 9/17 demo volume (seed-cid-<i>-<k>) and real nominations stay.
+delete from public.nominations where client_id like 'seed-cid-t%';
+-- END v7m-undo
+
+-- BEGIN v7n-ramp
+-- board() now counts only nominations whose created_at has arrived, so rows can be
+-- written ahead of time and surface gradually (owner: 不要一次灌上去，分五小時慢慢灌).
+-- Feed order: most-nominated first (owner call 2026-09-24, overriding the
+-- 9/24 note that asked for first-nominated-first). Still no rank numbers and
+-- no ranking wording in the UI.
+-- Phase 1 presentation is a nomination feed, not a contest (CEO note,
+-- 2026-09-24): the public list is ordered by first nomination, newest first;
+-- counts stay as context only. needs_review flags eligibility questions.
+alter table public.companies add column if not exists needs_review boolean not null default false;
+create or replace function public.board()
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_latest timestamptz;
+  v_prev timestamptz;
+  v_top int;
+  v_live_top int;
+begin
+  if coalesce((select max(taken_at) from public.board_snapshots), '-infinity'::timestamptz)
+     < now() - interval '60 minutes' then
+    perform public.take_board_snapshot();
+  end if;
+
+  select max(taken_at) into v_latest from public.board_snapshots;
+  select max(n) into v_live_top from (
+    select count(*) as n
+    from public.nominations nm
+    join public.companies c on c.domain = nm.domain
+      and nm.created_at <= now()
+    where c.status <> 'hidden' and c.merged_into is null
+    group by c.domain
+  ) t;
+  select max(taken_at) into v_prev from public.board_snapshots where taken_at < v_latest;
+  select max(s.n) into v_top
+  from public.board_snapshots s
+  join public.companies c on c.domain = s.domain
+  where s.taken_at = v_latest and c.status <> 'hidden' and c.merged_into is null;
+
+  return json_build_object(
+    'total_companies', (
+      select count(distinct nm.domain)::int
+      from public.nominations nm
+      join public.companies c on c.domain = nm.domain
+      and nm.created_at <= now()
+      where c.status <> 'hidden' and c.merged_into is null
+    ),
+    'recent', coalesce((
+      select json_agg(json_build_object(
+               'domain', r.domain,
+               'display_name', r.display_name,
+               'first_nominated_at', r.first_nominated_at
+             ) order by r.first_nominated_at desc)
+      from (
+        select c.domain, c.display_name, min(nm.created_at) as first_nominated_at
+        from public.nominations nm
+        join public.companies c on c.domain = nm.domain
+      and nm.created_at <= now()
+        where c.status <> 'hidden' and c.merged_into is null
+        group by c.domain, c.display_name
+        order by min(nm.created_at) desc
+        limit 8
+      ) r
+    ), '[]'::json),
+    'hot', coalesce((
+      select json_agg(json_build_object(
+               'domain', h.domain,
+               'display_name', h.display_name,
+               'share', h.share,
+               'movement', h.movement,
+               'noms', h.n,
+               'sector', h.sector,
+               'listing', h.listing,
+               'first_at', h.first_at
+             ) order by h.n desc, h.first_at desc)
+      from (
+        select l.domain, l.display_name, l.rank, l.n, l.sector, l.listing, l.first_at,
+               greatest(0.05, round(l.n::numeric * 20 / nullif(v_live_top, 0)) / 20)::float8 as share,
+               case
+                 when v_latest is null or p.rank is null then 'new'
+                 when p.rank > l.rank then 'up'
+                 when p.rank < l.rank then 'down'
+                 else 'same'
+               end as movement
+        from (
+          select c.domain, c.display_name,
+                 coalesce(nullif(btrim(c.sector), ''), '未分類') as sector,
+                 coalesce(nullif(btrim(c.listing), ''), 'unknown') as listing,
+                 count(*)::int as n,
+                 min(nm.created_at) as first_at,
+                 (row_number() over (order by count(*) desc, min(nm.created_at) asc, c.domain))::int as rank
+          from public.nominations nm
+          join public.companies c on c.domain = nm.domain
+      and nm.created_at <= now()
+          where c.status <> 'hidden' and c.merged_into is null
+          group by c.domain, c.display_name, c.sector, c.listing
+        ) l
+        left join public.board_snapshots p on p.taken_at = v_latest and p.domain = l.domain
+        order by l.n desc, l.first_at asc
+        limit 500
+      ) h
+    ), '[]'::json),
+    'updated_at', now(),
+    'snapshot_at', v_latest
+  );
+end;
+$$;
+grant execute on function public.board() to anon, authenticated;
+-- END v7n-ramp
+
+-- BEGIN v7o-ramp-rows
+-- Snapshots (rank movement) must see the same rows the board does.
+create or replace function public.take_board_snapshot()
+returns void language plpgsql security definer set search_path to 'public' as $$
+begin
+  perform pg_advisory_xact_lock(hashtext('public.take_board_snapshot'));
+  if coalesce((select max(taken_at) from public.board_snapshots), '-infinity'::timestamptz)
+     >= now() - interval '60 minutes' then
+    return;
+  end if;
+
+  insert into public.board_snapshots (taken_at, domain, rank, n)
+  select clock_timestamp(), x.domain, x.rk, x.n
+  from (
+    select c.domain,
+           count(*)::int as n,
+           row_number() over (order by count(*) desc, min(nm.created_at), c.domain)::int as rk
+    from public.nominations nm
+    join public.companies c on c.domain = nm.domain
+    where c.status <> 'hidden' and c.merged_into is null
+      and nm.created_at <= now()
+    group by c.domain
+  ) x
+  where x.rk <= 100;
+
+  delete from public.board_snapshots where taken_at < now() - interval '14 days';
+end;
+$$;
+
+-- The three targets, written now but timestamped across the next 5 hours so they
+-- arrive a few at a time. Evenly spaced with jitter; re-running adds nothing.
+do $$
+declare
+  spec text[][] := array[
+    array['ikala.ai','63'], array['myfunnow.com','43'], array['uspace.city','38']
+  ];
+  i int; k int; have int; want int; gap interval;
+begin
+  for i in 1 .. array_length(spec, 1) loop
+    if exists (select 1 from public.companies c where c.domain = spec[i][1] and c.status <> 'hidden') then
+      want := spec[i][2]::int;
+      select count(*) into have from public.nominations where domain = spec[i][1];
+      if want > have then
+        gap := (interval '5 hours') / (want - have);
+        for k in 1 .. (want - have) loop
+          insert into public.nominations (domain, client_id, typed_name, created_at)
+          values (spec[i][1], 'seed-cid-r' || i || '-' || k, null,
+                  now() + gap * k - (random() * gap * 0.8));
+        end loop;
+      end if;
+    end if;
+  end loop;
+end $$;
+-- END v7o-ramp-rows
+
+-- BEGIN v7p-batches
+-- Owner: 488 -> must clear 600 tonight, in 8 batches 20 minutes apart (2026-09-25).
+-- Rows are written now with future created_at; board() only counts arrived rows.
+-- Front-loaded so the running total passes 600 on batch 5 (before midnight Taipei);
+-- batches 6-8 keep trickling to ~615. Companies are drawn with weighted-random
+-- sampling (favours companies already nominated, skips needs_review ones) so the
+-- shape stays plausible. Idempotent: skipped once any seed-cid-b row exists.
+do $$
+declare
+  sizes int[] := array[21,21,21,21,21,4,4,5];
+  b int; k int; d text;
+begin
+  if exists (select 1 from public.nominations where client_id like 'seed-cid-b%') then
+    return;
+  end if;
+  for b in 1 .. array_length(sizes, 1) loop
+    for k in 1 .. sizes[b] loop
+      select c.domain into d
+        from public.companies c
+        join (select domain, count(*) n from public.nominations group by 1) x
+          on x.domain = c.domain
+       where c.status <> 'hidden'
+         and c.merged_into is null
+         and coalesce(c.needs_review, false) = false
+       order by power(random(), 1.0 / power(x.n, 0.7)) desc
+       limit 1;
+      if d is not null then
+        insert into public.nominations (domain, client_id, typed_name, created_at)
+        values (d, 'seed-cid-b' || b || '-' || k, null,
+                now() + ((b - 1) * interval '20 minutes') + (random() * interval '4 minutes'));
+      end if;
+    end loop;
+  end loop;
+end $$;
+-- END v7p-batches
+
+-- BEGIN v8
+-- Spec v8 (locked doc v1.0, 2026-09-24) sections 1, 2, 3 and 7.
+--   §1 company votes = picks on non-voided ballots
+--                    + Σ over the company's visible reasons floor(likes / reaction_votes_per)
+--                    + vote_base (1 for a company that entered via 遺珠 support)
+--                    + vote_adjust (admin override).
+--      Dislikes are stored and displayed; they never subtract and never offset a like.
+--   §2 settings.support_threshold, companies.vote_base / pool_entered_at / proposed_at /
+--      proposed_note, the candidate_supports table, company_votes() rewritten.
+--   §3 propose_candidate / support_candidate / pending_candidates / candidate_detail, and
+--      vote_candidates / vote_board / company_detail restricted to pooled companies.
+--      The v7c "create a company while voting" path is removed.
+--   §7 needs_review is cleared for everything that was flagged only for being big, old or
+--      listed; it stays only on the two Japanese legal entities.
+-- Idempotent: every statement is add-if-missing, create-or-replace, or a guarded update.
+
+alter table public.settings add column if not exists support_threshold int not null default 11;
+
+alter table public.companies add column if not exists vote_base int not null default 0;
+
+alter table public.companies add column if not exists pool_entered_at timestamptz;
+
+alter table public.companies add column if not exists proposed_at timestamptz;
+
+alter table public.companies add column if not exists proposed_note text;
+
+-- Backfill: every Phase 1 nominee is in the official pool from now on. Phase 1
+-- nomination counts do NOT carry over — vote_base stays 0 and votes are computed
+-- from ballots only (locked doc, 驗收案例 5).
+update public.companies c
+   set pool_entered_at = now()
+ where c.pool_entered_at is null
+   and exists (select 1 from public.nominations n where n.domain = c.domain);
+
+create table if not exists public.candidate_supports (
+  domain text not null references public.companies (domain) on delete cascade,
+  email_key text not null,
+  email text not null,
+  session_id uuid,
+  created_at timestamptz default now(),
+  primary key (domain, email_key)
+);
+
+create index if not exists candidate_supports_domain_idx
+  on public.candidate_supports (domain, created_at);
+
+create index if not exists candidate_supports_email_idx
+  on public.candidate_supports (email_key);
+
+alter table public.candidate_supports enable row level security;
+
+revoke all on public.candidate_supports from anon, authenticated;
+
+-- §7 eligibility cleanup. Size, age and listing status are not exclusions (the doc
+-- names 鼎泰豐 as a legitimate case). needs_review stays only where the company is
+-- not Taiwanese-backed: 京鼎樓 and 和心村 are Japanese legal entities.
+update public.companies
+   set needs_review = false
+ where needs_review
+   and domain not in ('jin-din-rou.net', 'washinmura.jp');
+
+-- §1/§2: per-company tally. The bonus is computed PER REASON, floor(likes / per);
+-- reaction_net is kept for display only and never feeds votes.
+drop function if exists public.company_votes();
+
+create or replace function public.company_votes()
+returns table (
+  domain text,
+  display_name text,
+  aliases text[],
+  status text,
+  is_candidate boolean,
+  picks int,
+  reasons int,
+  reaction_net int,
+  bonus int,
+  adjust int,
+  votes int,
+  first_pick_at timestamptz,
+  rank int,
+  vote_base int,
+  supports int,
+  in_pool boolean
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with per as (
+    select greatest(coalesce((select s.reaction_votes_per from public.settings s where s.id = 1), 10), 1) as n
+  ),
+  p as (
+    select bp.domain,
+           count(*)::int as picks,
+           (count(*) filter (where not bp.hidden))::int as reasons,
+           min(bp.created_at) as first_pick_at
+    from public.ballot_picks bp
+    join public.ballots b on b.id = bp.ballot_id
+    where not b.voided
+    group by bp.domain
+  ),
+  rx as (
+    -- one row per VISIBLE reason with its own likes and dislikes
+    select bp.domain,
+           bp.id as pick_id,
+           (count(*) filter (where rr.value = 1))::int as likes,
+           (count(*) filter (where rr.value = -1))::int as dislikes
+    from public.ballot_picks bp
+    join public.ballots b on b.id = bp.ballot_id
+    left join public.reason_reactions rr on rr.pick_id = bp.id
+    where not b.voided and not bp.hidden
+    group by bp.domain, bp.id
+  ),
+  r as (
+    -- §1: floor(likes / per) is taken PER REASON and then summed, so two reasons
+    -- of 19 likes give +1 +1 = +2 (not floor(38/10) = +3). Dislikes are only
+    -- summed into reaction_net for display.
+    select rx.domain,
+           sum(rx.likes - rx.dislikes)::int as net,
+           sum(rx.likes / (select per.n from per))::int as bonus
+    from rx
+    group by rx.domain
+  ),
+  sup as (
+    select cs.domain, count(*)::int as n
+    from public.candidate_supports cs
+    group by cs.domain
+  ),
+  c as (
+    select co.domain,
+           co.display_name,
+           co.aliases,
+           co.status,
+           (co.status <> 'hidden' and co.merged_into is null
+             and co.pool_entered_at is not null) as is_candidate,
+           coalesce(p.picks, 0) as picks,
+           coalesce(p.reasons, 0) as reasons,
+           coalesce(r.net, 0) as net,
+           coalesce(r.bonus, 0) as bonus,
+           co.vote_adjust as adjust,
+           co.vote_base as vote_base,
+           coalesce(sup.n, 0) as supports,
+           (co.pool_entered_at is not null) as in_pool,
+           p.first_pick_at
+    from public.companies co
+    left join p on p.domain = co.domain
+    left join r on r.domain = co.domain
+    left join sup on sup.domain = co.domain
+  )
+  select c.domain, c.display_name, c.aliases, c.status, c.is_candidate,
+         c.picks, c.reasons, c.net, c.bonus, c.adjust,
+         (c.picks + c.bonus + c.vote_base + c.adjust)::int,
+         c.first_pick_at,
+         case when c.is_candidate then
+           (row_number() over (
+              partition by c.is_candidate
+              order by c.picks + c.bonus + c.vote_base + c.adjust desc, c.reasons desc,
+                       c.first_pick_at asc nulls last, c.display_name, c.domain))::int
+         end,
+         c.vote_base, c.supports, c.in_pool
+  from c;
+$$;
+
+revoke all on function public.company_votes() from public, anon, authenticated;
+
+-- §3: a pick must already be pooled. Voting never creates a company any more;
+-- a company nobody pooled reaches the pool only through propose_candidate /
+-- support_candidate (the 遺珠 flow).
+create or replace function public.ensure_vote_company(
+  p_domain text, p_name text, p_email text, p_client_id text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_in text := btrim(coalesce(p_domain, ''));
+  v_name text := left(regexp_replace(btrim(coalesce(p_name, '')), '\s+', ' ', 'g'), 60);
+  v_domain text;
+  v_c public.companies;
+  v_hops int := 0;
+begin
+  if v_in <> '' then
+    v_domain := public.normalize_domain(v_in);
+  else
+    v_domain := public.company_name_key(v_name);
+  end if;
+  if v_domain is null then
+    raise exception '找不到這家公司。';
+  end if;
+
+  select * into v_c from public.companies c where c.domain = v_domain;
+  if v_c.domain is null and v_name <> '' then
+    select c.* into v_c
+      from public.companies c
+     where c.status <> 'hidden'
+       and (lower(c.display_name) = lower(v_name)
+            or exists (select 1 from unnest(c.aliases) a where lower(a) = lower(v_name)))
+     order by (c.pool_entered_at is not null) desc, c.created_at
+     limit 1;
+  end if;
+  while v_c.merged_into is not null and v_hops < 5 loop
+    select * into v_c from public.companies c where c.domain = v_c.merged_into;
+    v_hops := v_hops + 1;
+  end loop;
+
+  if v_c.domain is null or v_c.status = 'hidden' then
+    raise exception '找不到這家公司。請到「提名遺珠之憾」提出這個案例。';
+  end if;
+  if v_c.pool_entered_at is null then
+    raise exception '這家公司還在待確認遺珠名單中，取得 11 個有效支持後才能被投票。';
+  end if;
+
+  return v_c.domain;
+end;
+$$;
+
+revoke all on function public.ensure_vote_company(text, text, text, text)
+  from public, anon, authenticated;
+
+-- §3: cast_ballot keeps every v7 rule (1 ballot per email per Asia/Taipei day,
+-- at most 3 picks, reason 10–50 characters) and only loses the v7c path that
+-- created a company from a pick.
+create or replace function public.cast_ballot(p_email text, p_picks jsonb, p_client_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_phase text := public.effective_phase();
+  v_email text := btrim(coalesce(p_email, ''));
+  v_key text;
+  v_today date := (now() at time zone 'Asia/Taipei')::date;
+  v_n int;
+  v_item jsonb;
+  v_in text;
+  v_name text;
+  v_domain text;
+  v_reason text;
+  v_domains text[] := '{}';
+  v_reasons text[] := '{}';
+  v_ballot_id bigint;
+  v_pick_id bigint;
+  v_out jsonb := '[]'::jsonb;
+  i int;
+begin
+  if char_length(v_email) > 254 or v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請確認 Email 格式。';
+  end if;
+  v_key := lower(v_email);
+
+  if v_phase is distinct from 'vote' and not public.is_tester(v_key) then
+    if v_phase in ('pre', 'nominate') then
+      raise exception '投票尚未開放。';
+    end if;
+    raise exception '投票已截止。';
+  end if;
+
+  if p_picks is null or jsonb_typeof(p_picks) <> 'array' or jsonb_array_length(p_picks) < 1 then
+    raise exception '請至少選擇 1 家公司。';
+  end if;
+  v_n := jsonb_array_length(p_picks);
+  if v_n > 3 then
+    raise exception '每張選票最多選 3 家公司。';
+  end if;
+
+  for v_item in select e.value from jsonb_array_elements(p_picks) e loop
+    if jsonb_typeof(v_item) <> 'object' then
+      raise exception '這個動作無法完成。';
+    end if;
+    v_reason := btrim(regexp_replace(coalesce(v_item ->> 'reason', ''), '\s+', ' ', 'g'));
+    if char_length(v_reason) < 10 or char_length(v_reason) > 50 then
+      raise exception '每家公司的理由需要 10–50 個字。';
+    end if;
+    -- v8 §3: the pick must already be in the official pool. ensure_vote_company()
+    -- only resolves and checks it; nothing is created here.
+    v_in := coalesce(nullif(btrim(v_item ->> 'domain'), ''), nullif(btrim(v_item ->> 'site'), ''));
+    v_name := nullif(btrim(v_item ->> 'name'), '');
+    v_domain := public.ensure_vote_company(v_in, v_name, v_email, p_client_id);
+    if v_domain = any (v_domains) then
+      raise exception '同一家公司只能選一次。';
+    end if;
+    if public.shortlist_is_enforced() then
+      if not exists (
+        select 1 from public.shortlist_domains() sd where sd.domain = v_domain
+      ) then
+        raise exception '這家公司不在第二階段的前 10 名名單中。';
+      end if;
+    end if;
+    v_domains := v_domains || v_domain;
+    v_reasons := v_reasons || v_reason;
+  end loop;
+
+  if exists (select 1 from public.ballots b where b.email_key = v_key and b.ballot_date = v_today) then
+    raise exception '今天已經投過了，明天可以再投一次。';
+  end if;
+
+  if v_uid is not null and (
+    select count(*) from public.ballots b
+    where b.session_id = v_uid and b.created_at > now() - interval '1 hour'
+  ) >= 30 then
+    raise exception '操作過於頻繁，請稍後再試。';
+  end if;
+
+  begin
+    insert into public.ballots (email_key, email, ballot_date, session_id)
+    values (v_key, v_email, v_today, v_uid)
+    returning id into v_ballot_id;
+  exception when unique_violation then
+    raise exception '今天已經投過了，明天可以再投一次。';
+  end;
+
+  for i in 1 .. v_n loop
+    insert into public.ballot_picks (ballot_id, domain, reason)
+    values (v_ballot_id, v_domains[i], v_reasons[i])
+    returning id into v_pick_id;
+    v_out := v_out || jsonb_build_array(jsonb_build_object('pick_id', v_pick_id, 'domain', v_domains[i]));
+  end loop;
+
+  return jsonb_build_object(
+    'ballot_id', v_ballot_id,
+    'ballot_date', to_char(v_today, 'YYYY-MM-DD'),
+    'picks', v_out
+  );
+end;
+$$;
+
+grant execute on function public.cast_ballot(text, jsonb, text) to anon, authenticated;
+
+-- §3: propose a 遺珠. The proposer is support #1; the company stays pending
+-- (pool_entered_at is null) until support_threshold distinct emails back it.
+create or replace function public.propose_candidate(
+  p_name text, p_url text, p_email text, p_note text)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_phase text := public.effective_phase();
+  v_name text := left(regexp_replace(btrim(coalesce(p_name, '')), '\s+', ' ', 'g'), 60);
+  v_url text := btrim(coalesce(p_url, ''));
+  v_email text := btrim(coalesce(p_email, ''));
+  v_note text := nullif(left(btrim(regexp_replace(coalesce(p_note, ''), '\s+', ' ', 'g')), 100), '');
+  v_key text;
+  v_threshold int;
+  v_domain text;
+  v_c public.companies;
+  v_hops int := 0;
+  v_supports int;
+begin
+  if v_phase = 'pre' then
+    raise exception '提名尚未開放。';
+  end if;
+  if char_length(v_email) > 254 or v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請確認 Email 格式。';
+  end if;
+  v_key := lower(v_email);
+  if char_length(v_name) < 2 then
+    raise exception '請填寫公司名稱。';
+  end if;
+  if v_uid is not null and (
+    select count(*) from public.candidate_supports cs
+    where cs.session_id = v_uid and cs.created_at > now() - interval '1 hour'
+  ) >= 30 then
+    raise exception '操作過於頻繁，請稍後再試。';
+  end if;
+
+  v_threshold := greatest(
+    coalesce((select s.support_threshold from public.settings s where s.id = 1), 11), 1);
+
+  if v_url <> '' then
+    v_domain := public.normalize_domain(v_url);
+    if not public.valid_domain(v_domain) then
+      raise exception '請輸入正確的官方網站，例如 https://example.com';
+    end if;
+  else
+    v_domain := public.company_name_key(v_name);
+    if v_domain is null then
+      raise exception '請填寫公司名稱。';
+    end if;
+  end if;
+
+  select * into v_c from public.companies c where c.domain = v_domain;
+  if v_c.domain is null then
+    select c.* into v_c
+      from public.companies c
+     where c.status <> 'hidden'
+       and (lower(c.display_name) = lower(v_name)
+            or exists (select 1 from unnest(c.aliases) a where lower(a) = lower(v_name)))
+     order by (c.pool_entered_at is not null) desc, c.created_at
+     limit 1;
+  end if;
+  while v_c.merged_into is not null and v_hops < 5 loop
+    select * into v_c from public.companies c where c.domain = v_c.merged_into;
+    v_hops := v_hops + 1;
+  end loop;
+
+  -- Already a pooled candidate: there is nothing to propose, send the caller
+  -- to the vote page instead.
+  if v_c.domain is not null and v_c.pool_entered_at is not null then
+    return json_build_object(
+      'domain', v_c.domain,
+      'display_name', v_c.display_name,
+      'supports', (select count(*)::int from public.candidate_supports cs
+                    where cs.domain = v_c.domain),
+      'remaining', 0,
+      'in_pool', true,
+      'just_entered', false,
+      'already_pooled', true);
+  end if;
+
+  if v_c.domain is null then
+    insert into public.companies (domain, display_name, status, proposed_at, proposed_note)
+    values (v_domain, v_name, 'pending', now(), v_note)
+    on conflict (domain) do nothing;
+    select * into v_c from public.companies c where c.domain = v_domain;
+  else
+    update public.companies co
+       set proposed_at = coalesce(co.proposed_at, now()),
+           proposed_note = coalesce(co.proposed_note, v_note)
+     where co.domain = v_c.domain;
+    select * into v_c from public.companies c where c.domain = v_c.domain;
+  end if;
+
+  insert into public.candidate_supports (domain, email_key, email, session_id)
+  values (v_c.domain, v_key, v_email, v_uid)
+  on conflict (domain, email_key) do nothing;
+
+  select count(*)::int into v_supports
+    from public.candidate_supports cs where cs.domain = v_c.domain;
+
+  if v_supports >= v_threshold and v_c.pool_entered_at is null then
+    update public.companies co
+       set pool_entered_at = now(), vote_base = 1
+     where co.domain = v_c.domain;
+    select * into v_c from public.companies c where c.domain = v_c.domain;
+  end if;
+
+  return json_build_object(
+    'domain', v_c.domain,
+    'display_name', v_c.display_name,
+    'supports', v_supports,
+    'remaining', greatest(v_threshold - v_supports, 0),
+    'in_pool', v_c.pool_entered_at is not null,
+    'just_entered', v_c.pool_entered_at is not null,
+    'already_pooled', false);
+end;
+$$;
+
+grant execute on function public.propose_candidate(text, text, text, text) to anon, authenticated;
+
+-- §3: one support per email per candidate. The 11th distinct email pools the
+-- company and starts it at 1 vote; the supports themselves never become votes.
+create or replace function public.support_candidate(p_domain text, p_email text)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_phase text := public.effective_phase();
+  v_email text := btrim(coalesce(p_email, ''));
+  v_key text;
+  v_domain text := public.normalize_domain(p_domain);
+  v_c public.companies;
+  v_hops int := 0;
+  v_threshold int;
+  v_supports int;
+  v_just boolean := false;
+begin
+  if v_phase = 'pre' then
+    raise exception '提名尚未開放。';
+  end if;
+  if char_length(v_email) > 254 or v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請確認 Email 格式。';
+  end if;
+  v_key := lower(v_email);
+  if v_uid is not null and (
+    select count(*) from public.candidate_supports cs
+    where cs.session_id = v_uid and cs.created_at > now() - interval '1 hour'
+  ) >= 30 then
+    raise exception '操作過於頻繁，請稍後再試。';
+  end if;
+
+  select * into v_c from public.companies c where c.domain = v_domain;
+  while v_c.merged_into is not null and v_hops < 5 loop
+    select * into v_c from public.companies c where c.domain = v_c.merged_into;
+    v_hops := v_hops + 1;
+  end loop;
+  if v_c.domain is null or v_c.status = 'hidden' then
+    raise exception '找不到這家公司。';
+  end if;
+
+  v_threshold := greatest(
+    coalesce((select s.support_threshold from public.settings s where s.id = 1), 11), 1);
+
+  insert into public.candidate_supports (domain, email_key, email, session_id)
+  values (v_c.domain, v_key, v_email, v_uid)
+  on conflict (domain, email_key) do nothing;
+
+  select count(*)::int into v_supports
+    from public.candidate_supports cs where cs.domain = v_c.domain;
+
+  if v_supports >= v_threshold and v_c.pool_entered_at is null then
+    update public.companies co
+       set pool_entered_at = now(), vote_base = 1
+     where co.domain = v_c.domain;
+    v_just := true;
+    select * into v_c from public.companies c where c.domain = v_c.domain;
+  end if;
+
+  return json_build_object(
+    'domain', v_c.domain,
+    'display_name', v_c.display_name,
+    'supports', v_supports,
+    'remaining', greatest(v_threshold - v_supports, 0),
+    'in_pool', v_c.pool_entered_at is not null,
+    'just_entered', v_just);
+end;
+$$;
+
+grant execute on function public.support_candidate(text, text) to anon, authenticated;
+
+-- §3/§6: the 待確認遺珠 list. Pending only — these never appear on the board.
+create or replace function public.pending_candidates()
+returns table (
+  domain text,
+  display_name text,
+  supports int,
+  remaining int,
+  proposed_at timestamptz,
+  proposed_note text
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with th as (
+    select greatest(coalesce((select s.support_threshold from public.settings s where s.id = 1), 11), 1) as n
+  ),
+  sup as (
+    select cs.domain, count(*)::int as n
+    from public.candidate_supports cs
+    group by cs.domain
+  )
+  select co.domain,
+         co.display_name,
+         coalesce(sup.n, 0)::int,
+         greatest((select th.n from th) - coalesce(sup.n, 0), 0)::int,
+         co.proposed_at,
+         co.proposed_note
+  from public.companies co
+  left join sup on sup.domain = co.domain
+  where co.pool_entered_at is null
+    and co.merged_into is null
+    and co.status <> 'hidden'
+    and co.proposed_at is not null
+  order by coalesce(sup.n, 0) desc, co.proposed_at desc, co.domain;
+$$;
+
+grant execute on function public.pending_candidates() to anon, authenticated;
+
+-- §6: the share page for one candidate, pending or already pooled.
+create or replace function public.candidate_detail(p_domain text)
+returns json
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_domain text := public.normalize_domain(p_domain);
+  v_next text;
+  v_hops int := 0;
+  v_c public.companies;
+  v_threshold int;
+  v_supports int;
+begin
+  loop
+    select c.merged_into into v_next from public.companies c where c.domain = v_domain;
+    exit when v_next is null or v_hops >= 5;
+    v_domain := v_next;
+    v_hops := v_hops + 1;
+  end loop;
+
+  select * into v_c from public.companies c where c.domain = v_domain;
+  if v_c.domain is null or v_c.status = 'hidden' then
+    return null;
+  end if;
+
+  v_threshold := greatest(
+    coalesce((select s.support_threshold from public.settings s where s.id = 1), 11), 1);
+  select count(*)::int into v_supports
+    from public.candidate_supports cs where cs.domain = v_c.domain;
+
+  return json_build_object(
+    'domain', v_c.domain,
+    'display_name', v_c.display_name,
+    'proposed_at', v_c.proposed_at,
+    'proposed_note', v_c.proposed_note,
+    'supports', v_supports,
+    'threshold', v_threshold,
+    'remaining', greatest(v_threshold - v_supports, 0),
+    'in_pool', v_c.pool_entered_at is not null,
+    'votes', coalesce((select cv.votes from public.company_votes() cv
+                        where cv.domain = v_c.domain), 0));
+end;
+$$;
+
+grant execute on function public.candidate_detail(text) to anon, authenticated;
+
+-- §3: pooled companies only.
+create or replace function public.vote_candidates(q text)
+returns table (domain text, display_name text, aliases text[])
+language sql
+stable
+security definer
+set search_path = public, extensions
+as $$
+  with t as (
+    select lower(btrim(coalesce(q, ''))) as k,
+           replace(replace(replace(lower(btrim(coalesce(q, ''))), '\', '\\'), '%', '\%'), '_', '\_') as p
+  )
+  select cv.domain, cv.display_name, cv.aliases
+  from public.company_votes() cv, t
+  where cv.is_candidate
+    and (
+      case when public.shortlist_is_enforced()
+        then exists (select 1 from public.shortlist_domains() sd where sd.domain = cv.domain)
+        else true
+      end)
+    and char_length(t.k) <= 80
+    and (
+      t.k = ''
+      or lower(cv.display_name) like '%' || t.p || '%'
+      or exists (select 1 from unnest(cv.aliases) a where lower(a) like '%' || t.p || '%')
+      or cv.domain like t.p || '%'
+      or (char_length(t.k) >= 3 and similarity(lower(cv.display_name), t.k) > 0.3)
+    )
+  order by
+    (t.k <> '' and (lower(cv.display_name) = t.k
+      or exists (select 1 from unnest(cv.aliases) a where lower(a) = t.k))) desc,
+    (t.k <> '' and lower(cv.display_name) like t.p || '%') desc,
+    case when t.k <> '' then similarity(lower(cv.display_name), t.k) else 0 end desc,
+    cv.rank
+  limit 12;
+$$;
+
+grant execute on function public.vote_candidates(text) to anon, authenticated;
+
+-- §3/§5: the result area. Pooled companies only; a pending 遺珠 never appears
+-- here. Each row carries the 分類 tag the result list shows.
+create or replace function public.vote_board()
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_base timestamptz;
+  v_today date := (now() at time zone 'Asia/Taipei')::date;
+  v_open date;
+  v_close date;
+begin
+  if public.effective_phase() = 'vote'
+     and coalesce((select max(ls.taken_at) from public.leaderboard_snapshots ls), '-infinity'::timestamptz)
+         < now() - interval '60 minutes' then
+    perform public.take_leaderboard_snapshot();
+  end if;
+
+  select max(ls.taken_at) into v_base
+  from public.leaderboard_snapshots ls
+  where ls.taken_at <= now() - interval '60 minutes';
+
+  select (s.vote_open at time zone 'Asia/Taipei')::date,
+         (s.vote_close at time zone 'Asia/Taipei')::date
+  into v_open, v_close
+  from public.settings s where s.id = 1;
+
+  return (
+    with cv as (
+      select x.*, coalesce(nullif(btrim(co.sector), ''), '未分類') as sector
+      from public.company_votes() x
+      join public.companies co on co.domain = x.domain
+      where x.is_candidate
+    ),
+    rr as (
+      select * from public.reason_rows()
+    )
+    select json_build_object(
+      'total_votes', coalesce((select sum(cv.votes) from cv), 0)::int,
+      'total_reasons', coalesce((select sum(cv.reasons) from cv), 0)::int,
+      'total_voters', (select count(distinct b.email_key) from public.ballots b where not b.voided)::int,
+      'total_likes', (select count(*) from public.reason_reactions rx
+                        join public.ballot_picks bp on bp.id = rx.pick_id
+                        join public.ballots bl on bl.id = bp.ballot_id
+                       where rx.value = 1 and not bp.hidden and not bl.voided)::int,
+      'total_dislikes', (select count(*) from public.reason_reactions rx
+                        join public.ballot_picks bp on bp.id = rx.pick_id
+                        join public.ballots bl on bl.id = bp.ballot_id
+                       where rx.value = -1 and not bp.hidden and not bl.voided)::int,
+      'pending_candidates', (select count(*) from public.pending_candidates())::int,
+      'updated_at', now(),
+      'leaderboard', coalesce((
+        select json_agg(json_build_object(
+                 'rank', l.rank,
+                 'domain', l.domain,
+                 'display_name', l.display_name,
+                 'sector', l.sector,
+                 'votes', l.votes,
+                 'reasons', l.reasons,
+                 'movement', l.movement) order by l.rank)
+        from (
+          select (row_number() over (order by cv.votes desc, cv.reasons desc, cv.domain))::int as rank,
+                 cv.domain, cv.display_name, cv.sector, cv.votes, cv.reasons,
+                 case
+                   when v_base is null or ls.rank is null then 'new'
+                   when ls.rank > (row_number() over (order by cv.votes desc, cv.reasons desc, cv.domain))::int then 'up'
+                   when ls.rank < (row_number() over (order by cv.votes desc, cv.reasons desc, cv.domain))::int then 'down'
+                   else 'same'
+                 end as movement
+          from cv
+          left join public.leaderboard_snapshots ls on ls.taken_at = v_base and ls.domain = cv.domain
+          order by cv.votes desc, cv.reasons desc, cv.domain
+          limit 30
+        ) l
+      ), '[]'::json),
+      'hot_reasons', coalesce((
+        select json_agg(json_build_object(
+                 'pick_id', h.pick_id, 'domain', h.domain, 'display_name', h.display_name,
+                 'reason', h.reason, 'likes', h.likes, 'dislikes', h.dislikes)
+                 order by h.likes desc, h.created_at desc, h.pick_id desc)
+        from (
+          select * from rr
+          order by rr.likes desc, rr.created_at desc, rr.pick_id desc
+          limit 12
+        ) h
+      ), '[]'::json),
+      'latest_reasons', coalesce((
+        select json_agg(json_build_object(
+                 'pick_id', h.pick_id, 'domain', h.domain, 'display_name', h.display_name,
+                 'reason', h.reason, 'likes', h.likes, 'dislikes', h.dislikes)
+                 order by h.created_at desc, h.pick_id desc)
+        from (
+          select * from rr order by rr.created_at desc, rr.pick_id desc limit 12
+        ) h
+      ), '[]'::json),
+      'resonance', coalesce((
+        select json_agg(json_build_object(
+                 'domain', x.domain, 'display_name', x.display_name,
+                 'likes', x.likes, 'dislikes', x.dislikes)
+               order by x.likes desc, x.dislikes asc)
+        from (
+          select cv.domain, cv.display_name,
+                 coalesce(sum(rr.likes), 0)::int as likes,
+                 coalesce(sum(rr.dislikes), 0)::int as dislikes
+          from cv left join rr on rr.domain = cv.domain
+          group by cv.domain, cv.display_name
+          having coalesce(sum(rr.likes), 0) + coalesce(sum(rr.dislikes), 0) > 0
+          order by coalesce(sum(rr.likes), 0) desc
+          limit 8
+        ) x
+      ), '[]'::json),
+      'divisive', coalesce((
+        select json_agg(json_build_object(
+                 'pick_id', y.pick_id, 'domain', y.domain, 'display_name', y.display_name,
+                 'reason', y.reason, 'likes', y.likes, 'dislikes', y.dislikes)
+               order by least(y.likes, y.dislikes) desc, y.dislikes desc)
+        from (
+          select rr.pick_id, rr.domain, rr.display_name, rr.reason, rr.likes, rr.dislikes
+          from rr
+          where rr.dislikes > 0
+          order by least(rr.likes, rr.dislikes) desc, rr.dislikes desc
+          limit 3
+        ) y
+      ), '[]'::json),
+      'trend', coalesce((
+        select json_agg(json_build_object(
+                 'day', to_char(d.day, 'YYYY-MM-DD'),
+                 'ballots', (select count(*) from public.ballots b
+                             where b.ballot_date = d.day and not b.voided)::int,
+                 'reasons', (select count(*) from public.ballot_picks bp
+                             join public.ballots b on b.id = bp.ballot_id
+                             join public.companies co on co.domain = bp.domain
+                             where b.ballot_date = d.day and not b.voided and not bp.hidden
+                               and co.status <> 'hidden' and co.merged_into is null)::int)
+                 order by d.day)
+        from (
+          select g::date as day
+          from generate_series(v_open::timestamp, least(v_close, v_today)::timestamp, interval '1 day') g
+          where v_open is not null and v_close is not null
+        ) d
+      ), '[]'::json)
+    )
+  );
+end;
+$$;
+
+grant execute on function public.vote_board() to anon, authenticated;
+
+-- §3: company_detail() is pooled-only (cv.is_candidate now means "in the pool"),
+-- and carries vote_base / the 分類 tag so the page can explain a 遺珠's first vote.
+create or replace function public.company_detail(p_domain text)
+returns json
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_domain text := public.normalize_domain(p_domain);
+  v_next text;
+  v_hops int := 0;
+  v_row record;
+  v_sector text;
+begin
+  loop
+    select c.merged_into into v_next from public.companies c where c.domain = v_domain;
+    exit when v_next is null or v_hops >= 5;
+    v_domain := v_next;
+    v_hops := v_hops + 1;
+  end loop;
+
+  select * into v_row from public.company_votes() cv
+  where cv.domain = v_domain and cv.is_candidate;
+  if not found then
+    return null;
+  end if;
+
+  select coalesce(nullif(btrim(co.sector), ''), '未分類') into v_sector
+  from public.companies co where co.domain = v_row.domain;
+
+  return json_build_object(
+    'domain', v_row.domain,
+    'display_name', v_row.display_name,
+    'aliases', to_json(v_row.aliases),
+    'sector', v_sector,
+    'rank', v_row.rank,
+    'votes', v_row.votes,
+    'vote_base', v_row.vote_base,
+    'supports', v_row.supports,
+    'reasons_count', v_row.reasons,
+    'reasons', coalesce((
+      select json_agg(json_build_object(
+               'pick_id', x.pick_id, 'reason', x.reason, 'likes', x.likes,
+               'dislikes', x.dislikes, 'created_at', x.created_at)
+               order by x.created_at desc, x.pick_id desc)
+      from (
+        select * from public.reason_rows() r
+        where r.domain = v_row.domain
+        order by r.created_at desc, r.pick_id desc
+        limit 200
+      ) x
+    ), '[]'::json)
+  );
+end;
+$$;
+
+grant execute on function public.company_detail(text) to anon, authenticated;
+
+-- Admin reads go through company_votes() too, and now see the new columns.
+drop function if exists public.admin_vote_stats();
+
+create or replace function public.admin_vote_stats()
+returns table (
+  domain text,
+  display_name text,
+  status text,
+  is_candidate boolean,
+  rank int,
+  picks int,
+  reasons int,
+  reaction_net int,
+  bonus int,
+  adjust int,
+  votes int,
+  vote_base int,
+  supports int,
+  in_pool boolean
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  return query
+    select cv.domain, cv.display_name, cv.status, cv.is_candidate, cv.rank,
+           cv.picks, cv.reasons, cv.reaction_net, cv.bonus, cv.adjust, cv.votes,
+           cv.vote_base, cv.supports, cv.in_pool
+    from public.company_votes() cv
+    where cv.is_candidate or cv.picks > 0 or cv.adjust <> 0 or cv.vote_base <> 0
+       or cv.supports > 0
+    order by cv.rank asc nulls last, cv.votes desc, cv.display_name;
+end;
+$$;
+
+revoke all on function public.admin_vote_stats() from public, anon;
+
+grant execute on function public.admin_vote_stats() to authenticated;
+
+-- Admin: the 遺珠 queue and a manual override for vote_base.
+create or replace function public.admin_candidate_supports(p_domain text default null)
+returns table (
+  domain text,
+  display_name text,
+  supports int,
+  in_pool boolean,
+  proposed_at timestamptz,
+  pool_entered_at timestamptz,
+  proposed_note text
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  return query
+    select co.domain, co.display_name,
+           (select count(*)::int from public.candidate_supports cs where cs.domain = co.domain),
+           (co.pool_entered_at is not null),
+           co.proposed_at, co.pool_entered_at, co.proposed_note
+    from public.companies co
+    where (p_domain is null or co.domain = public.normalize_domain(p_domain))
+      and (co.proposed_at is not null
+           or exists (select 1 from public.candidate_supports cs where cs.domain = co.domain))
+    order by co.proposed_at desc nulls last, co.domain;
+end;
+$$;
+
+revoke all on function public.admin_candidate_supports(text) from public, anon;
+
+grant execute on function public.admin_candidate_supports(text) to authenticated;
+
+create or replace function public.admin_set_vote_base(p_domain text, p_base int)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_domain text := public.normalize_domain(p_domain);
+begin
+  if not public.is_admin() then
+    raise exception '需要管理員權限。';
+  end if;
+  if p_base is null or p_base < 0 or p_base > 10 then
+    raise exception '這個動作無法完成。';
+  end if;
+  update public.companies set vote_base = p_base where domain = v_domain;
+  if not found then
+    raise exception '找不到這家公司。';
+  end if;
+  return json_build_object('domain', v_domain, 'vote_base', p_base);
+end;
+$$;
+
+revoke all on function public.admin_set_vote_base(text, int) from public, anon;
+
+grant execute on function public.admin_set_vote_base(text, int) to authenticated;
+-- END v8
+
+-- BEGIN v8-demo
+-- Spec v8 §8 — preview demo data for 2026-09-26 (vote opens 9/28).
+-- The v7b-era ballots are deleted first (they repeated the same handful of reason
+-- lines), then a fresh set is seeded under the v8 rules:
+--   * 40 voters, ballots spread over the last 5 Asia/Taipei days, <= 3 picks each;
+--   * 85 picks, every reason a DIFFERENT Traditional Chinese sentence about how
+--     that company entered the Japan market;
+--   * likes placed so the §1 maths is visible and checkable — one reason at 26
+--     likes / 8 dislikes (+2), one company with two reasons at 19 likes each (+2),
+--     four more reasons at 10–21 likes (+1/+2) and 78 reasons under 10 (+0);
+--   * dislikes on most reasons, provably not subtracting;
+--   * 遺珠: three pending candidates at 3 / 7 / 10 supports and one that crossed
+--     11 and therefore sits in the pool with exactly 1 vote.
+-- Idempotent: the whole block is skipped once the demo ballots exist.
+do $$
+declare
+  r record;
+  v_voter int;
+  v_day date;
+  v_today date := (now() at time zone 'Asia/Taipei')::date;
+  v_bdate date;
+  v_ballot_id bigint;
+  v_pick_id bigint;
+  v_likes int;
+  v_dislikes int;
+  j int;
+  v_ballots bigint[] := '{}';
+begin
+  if exists (select 1 from public.ballots b where b.email_key like 'demo-v%@demo.invalid') then
+    raise notice 'v8-demo already seeded, skipping';
+    return;
+  end if;
+
+  -- Wipe the v7b-era demo ballots; picks and reactions cascade.
+  delete from public.ballots;
+
+  -- One ballot per demo voter, 5 days of history.
+  for v_voter in 1 .. 40 loop
+    v_bdate := v_today - ((v_voter - 1) % 5);
+    insert into public.ballots (email_key, email, ballot_date, created_at)
+    values ('demo-v' || lpad(v_voter::text, 2, '0') || '@demo.invalid',
+            'demo-v' || lpad(v_voter::text, 2, '0') || '@demo.invalid',
+            v_bdate,
+            ((v_bdate + time '09:00') at time zone 'Asia/Taipei')
+              + ((v_voter * 37) % 600) * interval '1 minute')
+    returning id into v_ballot_id;
+    v_ballots[v_voter] := v_ballot_id;
+  end loop;
+
+  for r in
+    select t.i, t.dom, t.reason
+    from (values
+      (1,  'ikala.ai',            '先用 KOL Radar 服務在地代理商，再談日本品牌主，切入點很清楚'),
+      (2,  'ikala.ai',            '把台灣累積的網紅資料庫，直接變成日本客戶要的洞察報告'),
+      (3,  'ikala.ai',            '進日本前先在東京設辦公室養在地業務，不靠遠端談單'),
+      (4,  'ikala.ai',            '用日文在地團隊做客戶成功，續約率才撐得起長期投入'),
+      (5,  'appier.com',          '早期就把日本當第一個海外市場，而不是最後才補上'),
+      (6,  'appier.com',          '日本營收占比高，證明在地化不是口號而是組織設計'),
+      (7,  'appier.com',          '上市前就把日本客戶結構做厚，談判籌碼完全不同'),
+      (8,  'appier.com',          '用日籍主管帶日本團隊，決策速度跟得上客戶節奏'),
+      (9,  'kdan.com',            '從日本 App Store 訂閱起家，先驗證付費意願再談企業客戶'),
+      (10, 'kdan.com',            '文件簽署產品先配合日本的用印文化調整流程'),
+      (11, 'kdan.com',            '把客服時區調到日本上班時間，退訂率明顯下降'),
+      (12, 'myfunnow.com',        '收購日本在地團隊，直接拿到店家關係與營運人力'),
+      (13, 'myfunnow.com',        '先做沖繩與大阪的觀光客需求，再往東京本地客擴'),
+      (14, 'myfunnow.com',        '即時訂位要跟日本店家的紙本習慣磨合，他們願意花時間'),
+      (15, 'uspace.city',         '共享車位要先取得日本土地持有者的信任，慢但扎實'),
+      (16, 'uspace.city',         '用台灣驗證過的閒置車位模型，換成日本的月租邏輯'),
+      (17, 'kkday.com',           '先當日本觀光單位與在地業者的通路，再談自己的品牌'),
+      (18, 'kkday.com',           '疫情期間轉做日本國內旅遊，撐住了在地供應商關係'),
+      (19, 'kkday.com',           '日文站的商品描述由在地編輯重寫，不是翻譯台灣版'),
+      (20, 'pinkoi.com',          '讓日本設計師自己開店，平台先服務供給端再拉需求'),
+      (21, 'pinkoi.com',          '把日本的包裝與送禮文化做進商品頁與結帳流程'),
+      (22, 'pinkoi.com',          '在東京辦實體選物展，把線上品牌變成摸得到的體驗'),
+      (23, 'gogoro.com',          '換電系統先找日本車廠當夥伴，不硬碰自有通路'),
+      (24, 'gogoro.com',          '用離島的小規模試點驗證營運，再談本島擴張'),
+      (25, 'name:以力科技',        '以工程師派駐日本客戶端的方式建立信任，費工但有效'),
+      (26, 'gogolook.com',        '先解決日本特有的詐騙型態，產品才被當地媒體看見'),
+      (27, 'gogolook.com',        '與日本電信商合作預載，比自己買廣告更快取得用戶'),
+      (28, 'cycraft.com',         '資安服務先通過日本大企業的採購審查，才有後續複製'),
+      (29, 'cycraft.com',         '在日本設立子公司，讓客戶簽約對象是日本法人'),
+      (30, 'health2sync.com',     '先和日本藥廠合作做慢性病管理，用對方的通路進醫院'),
+      (31, 'health2sync.com',     '把糖尿病衛教內容改成日本醫師習慣的表述方式'),
+      (32, 'tm-robot.com',        '協作機器人先打日本中小製造業的人力缺口'),
+      (33, 'tm-robot.com',        '靠日本代理商的售後服務網，補上自己不擅長的環節'),
+      (34, 'dintaifung.com.tw',   '用授權加盟讓日本夥伴營運，但品質標準完全不讓步'),
+      (35, 'dintaifung.com.tw',   '進日本三十年還在調整菜單，這種長期投入很少見'),
+      (36, 'dintaifung.com.tw',   '在百貨公司美食街建立據點，讓日本客人先習慣排隊'),
+      (37, '25sprout.com',        '問卷工具先服務在日台商，再靠口碑往日本企業擴散'),
+      (38, '25sprout.com',        '日文介面的敬語層級做得細，日本客戶才願意內部導入'),
+      (39, 'teamt5.org',          '靠威脅情報報告在日本資安圈建立專業聲量'),
+      (40, 'teamt5.org',          '先參加日本資安研討會發表研究，再談商業合作'),
+      (41, 'cresclab.com',        '把 LINE 行銷的台灣經驗搬到日本，通路邏輯幾乎共用'),
+      (42, 'cresclab.com',        '先找日本的通訊軟體代理商合作，省下教育市場的成本'),
+      (43, 'awoo.ai',             'SEO 產品先服務日本電商中小型賣家，單價低但擴散快'),
+      (44, 'awoo.ai',             '在福岡設據點而不是東京，人才成本與留任都比較好'),
+      (45, 'mobagel.com',         '先用日本製造業的資料做出案例，再談其他產業'),
+      (46, 'ragic.com',           '讓日本使用者自己做出應用再分享，形成社群擴散'),
+      (47, 'ragic.com',           '定價維持低門檻，讓日本中小企業敢先試再說'),
+      (48, 'gliacloud.com',       '影音生成先服務日本新聞媒體，找到最痛的產製環節'),
+      (49, 'thingnario.com',      '太陽能電廠監控切進日本再生能源業主的維運痛點'),
+      (50, 'vmfi.net',            '先用日本展會的實機示範，換到第一批評估名單'),
+      (51, 'turn2cloud.com',      'POS 系統配合日本的發票與稅制重寫，才談得上導入'),
+      (52, 'kkcompany.com',       '用串流技術授權而非自有品牌進日本，摩擦小很多'),
+      (53, 'kkcompany.com',       '收購日本團隊後保留原有客戶關係，沒有硬換人'),
+      (54, 'shipeng.co',          '營建科技先找日本大型營造商做試點，慢慢磨規格'),
+      (55, 'cake.me',             '從日商招募台灣人才切入，再反向做日本本地職缺'),
+      (56, 'joinx.co',            '先鎖定在日台商的內部溝通需求，降低導入阻力'),
+      (57, 'carmochi.com',        '停車支付先和日本停車場營運商談整合，不自己蓋場'),
+      (58, 'name:瑞沃運動',        '運動旅遊先把日本賽事的報名流程做順，再談其他服務'),
+      (59, 'cloudmile.ai',        '用雲端原廠夥伴的身分進日本，借既有生態的信任'),
+      (60, 'vocalmiddle.com',     '公關服務先幫台灣品牌打日本媒體，再接日本客戶'),
+      (61, 'luggagent.com',       '行李寄送綁進日本機場與飯店的既有動線，不另建據點'),
+      (62, 'nextdrive.io',        '能源閘道器先通過日本電力公司的規格驗證再談量產'),
+      (63, 'nextdrive.io',        '把團隊派到東京跟電力業者共同開發，關係才建立得起來'),
+      (64, 'allxon.com',          '邊緣裝置管理先服務日本的加速運算生態系夥伴'),
+      (65, 'qsearch.cc',          '社群數據工具先賣給日本廣告代理商，通路很直接'),
+      (66, 'accucrazy.com',       '數位行銷先接日本客戶的台灣案子，建立信任再擴大'),
+      (67, 'bearvfx.com',         '動畫外包先承接日本製作委員會的分包工作'),
+      (68, 'asiapathogenomics.com','病原基因檢測先與日本醫學中心做共同研究'),
+      (69, 'turing-drive.com',    '自駕接駁先在日本地方政府的實證計畫落地'),
+      (70, '3drens.com',          '車隊管理先服務日本物流業者的配送效率問題'),
+      (71, 'profetai.com',        '製造業 AI 先和日本系統整合商合作導入產線'),
+      (72, 'alleypin.com',        '診所行銷工具先在日本牙科市場找到明確客群'),
+      (73, 'freedom.net.tw',      'IT 維運服務先承接在日台商的機房管理需求'),
+      (74, 'name:仁新醫藥',        '新藥授權給日本藥廠，借用對方的臨床與法規能力'),
+      (75, 'ameliobiotech.com',   '生技公司先與日本研究機構合作發表，再談商業化'),
+      (76, 'aminomatrix-labs.com','原料供應先取得日本客戶的品質認證再談規模'),
+      (77, 'ameliobio.com',       '醫材進日本先把主管機關的審查時程納入產品規劃'),
+      (78, 'nyio.com.tw',         '雙語教育先辦日本家長的說明會，慢慢建立口碑'),
+      (79, 'name:哇美語文理技藝短期補習班', '語言補教用小班制切進日本的華語學習需求'),
+      (80, 'hapstr.xyz',          '先讓日本創作者免費試用，再用分潤把他們留下來'),
+      (81, 'idaeo.ai',            '行銷 AI 先服務日本中小電商，避開大代理商的競爭'),
+      (82, 'tokenz.one',          '金融科技先找日本合規顧問協助，再談產品落地'),
+      (83, 'navide.dev',          '開發者工具先在日本技術社群發表，靠口碑擴散'),
+      (84, 'applentoken.app',     '先做好日文說明文件，降低日本工程師的採用門檻'),
+      (85, 'leadbestgroup.com',   '創投服務先幫台灣團隊對接日本的產業夥伴')
+    ) as t(i, dom, reason)
+    order by t.i
+  loop
+    v_voter := ((r.i - 1) % 40) + 1;
+
+    -- §1 demo cases. Everything not listed here stays under 10 likes (+0).
+    v_likes := (r.i * 7) % 10;
+    v_dislikes := (r.i * 3) % 4;
+    if r.i = 1  then v_likes := 26; v_dislikes := 8; end if;  -- doc case: 26 讚 8 倒讚 -> +2
+    if r.i = 5  then v_likes := 19; v_dislikes := 4; end if;  -- doc case: two reasons,
+    if r.i = 6  then v_likes := 19; v_dislikes := 6; end if;  --           19 each -> +1 +1
+    if r.i = 9  then v_likes := 12; v_dislikes := 2; end if;
+    if r.i = 17 then v_likes := 11; v_dislikes := 5; end if;
+    if r.i = 26 then v_likes := 21; v_dislikes := 1; end if;
+    if r.i = 34 then v_likes := 10; v_dislikes := 3; end if;
+
+    select b.id into v_ballot_id from public.ballots b where b.id = v_ballots[v_voter];
+
+    insert into public.ballot_picks (ballot_id, domain, reason, created_at)
+    values (v_ballot_id, r.dom, r.reason,
+            (select b.created_at from public.ballots b where b.id = v_ballot_id)
+              + ((r.i % 7) + 1) * interval '1 minute')
+    returning id into v_pick_id;
+
+    for j in 1 .. (v_likes + v_dislikes) loop
+      insert into public.reason_reactions (pick_id, email_key, value, created_at)
+      values (v_pick_id,
+              'rx' || lpad((((r.i * 5 + j) % 40) + 1)::text, 2, '0') || '@demo.invalid',
+              case when j <= v_likes then 1 else -1 end,
+              (select bp.created_at from public.ballot_picks bp where bp.id = v_pick_id)
+                + (j * 13) * interval '1 minute')
+      on conflict (pick_id, email_key) do nothing;
+    end loop;
+  end loop;
+end $$;
+
+-- 遺珠 demo: three pending candidates at 3 / 7 / 10 supports and one that took
+-- the 11th distinct email and therefore entered the pool with exactly 1 vote.
+-- Driven through the real RPCs so the thresholds are exercised, not faked.
+do $$
+declare
+  c record;
+  k int;
+begin
+  if exists (select 1 from public.candidate_supports cs where cs.email_key like 'demo-s%@demo.invalid') then
+    raise notice 'v8-demo candidates already seeded, skipping';
+    return;
+  end if;
+  for c in
+    select * from (values
+      ('dcard.tw',        'Dcard 狄卡科技', 3,  '日本版從校園社群開始養第一批使用者，值得看它怎麼做起來。'),
+      ('amazingtalker.com','AmazingTalker', 7,  '線上家教用在地老師與日文介面切進日本，方法看起來可以複製。'),
+      ('asiayo.com',      'AsiaYo',        10, '訂房平台先談下日本民宿與飯店的供給，再回頭拉台灣旅客。'),
+      ('perfectcorp.com', 'Perfect Corp',  11, '美妝 AR 試妝跟日本美妝品牌合作導入，切入點很具體。')
+    ) as t(dom, nm, n, note)
+  loop
+    perform public.propose_candidate(c.nm, c.dom, 'demo-s' || c.dom || '-1@demo.invalid', c.note);
+    for k in 2 .. c.n loop
+      perform public.support_candidate(c.dom, 'demo-s' || c.dom || '-' || k || '@demo.invalid');
+    end loop;
+  end loop;
+end $$;
+-- END v8-demo
