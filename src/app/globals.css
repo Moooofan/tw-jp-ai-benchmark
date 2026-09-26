@@ -918,24 +918,8 @@ a.ccard__name:hover{color:var(--brand);text-decoration:underline;text-underline-
 
 /* ============================================ v8b 2026-09-26 — phase 2 typography fixes */
 
-/* Prose bands used to be one narrow ragged column with half the band left empty.
-   Lead and body now sit side by side, so the section fills the measure it is given. */
-.body.prose{
-  display:grid;
-  grid-template-columns:minmax(0,1.04fr) minmax(0,1fr);
-  gap:0 60px;
-  align-items:start;
-}
-.body.prose .lead{grid-column:1;max-width:none;margin:0;font-size:20px;line-height:1.95}
-.body.prose .para{grid-column:2;max-width:none}
-.body.prose .para:first-of-type{margin-top:4px}
-@media (max-width:860px){
-  .body.prose{display:block}
-  .body.prose .lead{font-size:18px;margin-bottom:22px}
-}
-
-/* A band whose only child is the lead should use the whole width. */
-.body.wide .lead{max-width:none}
+/* Prose bands run as one column across the band; two columns made the text
+   stop at the middle of the screen and read as a leftover block on the right. */
 
 /* The closing CTA reuses the band built for the four-word 直播揭曉 line; at 64px a
    full sentence swallows the screen. */
@@ -949,6 +933,7 @@ a.ccard__name:hover{color:var(--brand);text-decoration:underline;text-underline-
    keeps punctuation off the start of a line. */
 .lead,.para,.stand,.qbox__q{line-break:strict;text-wrap:pretty}
 .body.wide .lead{max-width:46em;font-size:20px;line-height:1.95}
+.body.wide .para{max-width:46em}
 @media (max-width:860px){.body.wide .lead{font-size:18px}}
 .nowrap{white-space:nowrap}
 /* Below ~360px even a short clause can outrun the line, so let it wrap freely. */

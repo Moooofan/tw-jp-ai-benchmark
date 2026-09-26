@@ -173,7 +173,7 @@ export default function HomeVote({
               </ul>
             </Band>
 
-            <Band id="who" chip="03 · Who" title="誰可以被投票" bodyClass="prose">
+            <Band id="who" chip="03 · Who" title="誰可以被投票" bodyClass="wide">
               <p className="lead">
                 <Phrases>{`我們不以公司大小、成立年資或是否上市櫃作為排除條件。早期新創、平台型公司、成熟品牌、大型企業，都可以成為案例。`}</Phrases>
               </p>
@@ -229,7 +229,7 @@ export default function HomeVote({
               </div>
             </Band>
 
-            <Band id="reasons" chip="07 · Reasons" title="為值得認同的理由按讚" bodyClass="prose">
+            <Band id="reasons" chip="07 · Reasons" title="為值得認同的理由按讚" bodyClass="wide">
               <p className="lead">
                 <Phrases>{`投票之外，你也可以對其他人的理由按讚。每一則理由每累積 10
                 個有效按讚，就替該公司增加 1 票；20 個按讚增加 2 票，以此類推。`}</Phrases>
@@ -249,7 +249,7 @@ export default function HomeVote({
               </p>
             </Band>
 
-            <Band id="meaning" chip="09 · What It Means" title="這個結果代表什麼" bodyClass="prose">
+            <Band id="meaning" chip="09 · What It Means" title="這個結果代表什麼" bodyClass="wide">
               <p className="lead">
                 <Phrases>{`最終結果代表社群在這段期間內，對「哪些進入日本市場的方法最值得借鏡」的集體判斷。它不是營收榜、估值榜、公司成敗榜，也不是對任何企業的客觀定論。`}</Phrases>
               </p>
