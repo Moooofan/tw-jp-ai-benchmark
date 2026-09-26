@@ -145,7 +145,7 @@ export default function HomeVote({
               closed={closed}
             />
 
-            <Band id="why" chip="01 · Why" title="為什麼要做這次投票">
+            <Band id="why" chip="01 · Why" title="為什麼要做這次投票" bodyClass="prose">
               <p className="lead">
                 進入日本市場，對任何外國企業都不容易。真正值得我們討論的，不只是誰成功、誰最大、誰最新，而是它做對了什麼：如何找到市場切入點、建立信任、調整產品、選擇通路，並把一次嘗試變成可持續的市場存在。
               </p>
@@ -175,7 +175,7 @@ export default function HomeVote({
               </ul>
             </Band>
 
-            <Band id="who" chip="03 · Who" title="誰可以被投票">
+            <Band id="who" chip="03 · Who" title="誰可以被投票" bodyClass="prose">
               <p className="lead">
                 我們不以公司大小、成立年資或是否上市櫃作為排除條件。早期新創、平台型公司、成熟品牌、大型企業，都可以成為案例。
               </p>
@@ -231,7 +231,7 @@ export default function HomeVote({
               </div>
             </Band>
 
-            <Band id="reasons" chip="07 · Reasons" title="為值得認同的理由按讚">
+            <Band id="reasons" chip="07 · Reasons" title="為值得認同的理由按讚" bodyClass="prose">
               <p className="lead">
                 投票之外，你也可以對其他人的理由按讚。每一則理由每累積 10
                 個有效按讚，就替該公司增加 1 票；20 個按讚增加 2 票，以此類推。
@@ -245,13 +245,13 @@ export default function HomeVote({
               <ResonanceAndTrend />
             </Band>
 
-            <Band id="media" chip="08 · Media" title="關於媒體參與">
+            <Band id="media" chip="08 · Media" title="關於媒體參與" bodyClass="wide">
               <p className="lead">
                 媒體是我們會主動邀請的重要參與者之一，因為他們長期觀察產業，也能讓更多案例被看見。但媒體不比創業者、投資人或一般參與者更高一等：大家使用同一入口、遵守同一規則、一人同一票值。
               </p>
             </Band>
 
-            <Band id="meaning" chip="09 · What It Means" title="這個結果代表什麼">
+            <Band id="meaning" chip="09 · What It Means" title="這個結果代表什麼" bodyClass="prose">
               <p className="lead">
                 最終結果代表社群在這段期間內，對「哪些進入日本市場的方法最值得借鏡」的集體判斷。它不是營收榜、估值榜、公司成敗榜，也不是對任何企業的客觀定論。
               </p>

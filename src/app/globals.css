@@ -915,3 +915,31 @@ a.ccard__name:hover{color:var(--brand);text-decoration:underline;text-underline-
 .cprog__bar i{display:block;height:100%;background:linear-gradient(90deg,var(--secondary),var(--passion))}
 .cprog__n{font-family:var(--cond);font-weight:700;font-size:13px;letter-spacing:.06em;color:var(--muted)}
 .cprog__n b{font-size:18px;color:var(--brand)}
+
+/* ============================================ v8b 2026-09-26 — phase 2 typography fixes */
+
+/* Prose bands used to be one narrow ragged column with half the band left empty.
+   Lead and body now sit side by side, so the section fills the measure it is given. */
+.body.prose{
+  display:grid;
+  grid-template-columns:minmax(0,1.04fr) minmax(0,1fr);
+  gap:0 60px;
+  align-items:start;
+}
+.body.prose .lead{grid-column:1;max-width:none;margin:0;font-size:20px;line-height:1.95}
+.body.prose .para{grid-column:2;max-width:none}
+.body.prose .para:first-of-type{margin-top:4px}
+@media (max-width:860px){
+  .body.prose{display:block}
+  .body.prose .lead{font-size:18px;margin-bottom:22px}
+}
+
+/* A band whose only child is the lead should use the whole width. */
+.body.wide .lead{max-width:none}
+
+/* The closing CTA reuses the band built for the four-word 直播揭曉 line; at 64px a
+   full sentence swallows the screen. */
+#closing .liveband__big{font-size:clamp(24px,3.1vw,38px);line-height:1.35;margin:0 0 8px;max-width:22em}
+#closing .liveband__sub{font-size:clamp(15px,1.5vw,17px);font-weight:500}
+#closing .liveband{padding:44px 44px 40px}
+@media (max-width:860px){#closing .liveband{padding:34px 22px 32px}}
