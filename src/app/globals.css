@@ -915,26 +915,3 @@ a.ccard__name:hover{color:var(--brand);text-decoration:underline;text-underline-
 .cprog__bar i{display:block;height:100%;background:linear-gradient(90deg,var(--secondary),var(--passion))}
 .cprog__n{font-family:var(--cond);font-weight:700;font-size:13px;letter-spacing:.06em;color:var(--muted)}
 .cprog__n b{font-size:18px;color:var(--brand)}
-
-/* ============================================ v8b 2026-09-26 — phase 2 typography fixes */
-
-/* Prose bands run as one column across the band; two columns made the text
-   stop at the middle of the screen and read as a leftover block on the right. */
-
-/* The closing CTA reuses the band built for the four-word 直播揭曉 line; at 64px a
-   full sentence swallows the screen. */
-#closing .liveband__big{font-size:clamp(24px,3.1vw,38px);line-height:1.35;margin:0 0 8px;max-width:22em}
-#closing .liveband__sub{font-size:clamp(15px,1.5vw,17px);font-weight:500}
-#closing .liveband{padding:44px 44px 40px}
-@media (max-width:860px){#closing .liveband{padding:34px 22px 32px}}
-
-/* v8c 2026-09-26 — CJK lines were breaking mid-phrase because the measure was
-   only ~30 characters wide. A ~46-character measure plus strict line breaking
-   keeps punctuation off the start of a line. */
-.lead,.para,.stand,.qbox__q{line-break:strict;text-wrap:pretty}
-.body.wide .lead{max-width:46em;font-size:20px;line-height:1.95}
-.body.wide .para{max-width:46em}
-@media (max-width:860px){.body.wide .lead{font-size:18px}}
-.nowrap{white-space:nowrap}
-/* Below ~360px even a short clause can outrun the line, so let it wrap freely. */
-@media (max-width:360px){.nowrap{white-space:normal}}

@@ -3,7 +3,6 @@ import { ArrowRight, Info } from "lucide-react";
 import { hhmm, monthDay } from "@/lib/format";
 import type { Stats, VoteBoard } from "@/lib/types";
 import Band from "./Band";
-import Phrases from "./Phrases";
 import {
   BoardProvider,
   ReasonTabs,
@@ -109,8 +108,8 @@ export default function HomeVote({
                 <span className="chip">TAIWAN → JAPAN 2026</span>
                 <h1>{H1}</h1>
                 <p className="stand">
-                <Phrases>{`無論是剛起步的新創、平台型企業、上市櫃公司，或已經成熟的品牌，只要它正在或已經進入日本市場，就可能有值得我們學習的方法。不是因為它大就更好，也不是因為它小就該被忽略。`}</Phrases>
-              </p>
+                  無論是剛起步的新創、平台型企業、上市櫃公司，或已經成熟的品牌，只要它正在或已經進入日本市場，就可能有值得我們學習的方法。不是因為它大就更好，也不是因為它小就該被忽略。
+                </p>
                 <div className="hero__cta">
                   {closed ? (
                     <a className="btn btn--red" href="#results">
@@ -146,9 +145,12 @@ export default function HomeVote({
               closed={closed}
             />
 
-            <Band id="why" chip="01 · Why" title="為什麼要做這次投票" bodyClass="wide">
+            <Band id="why" chip="01 · Why" title="為什麼要做這次投票">
               <p className="lead">
-                <Phrases>{`進入日本市場，對任何外國企業都不容易。真正值得我們討論的，不只是誰成功、誰最大、誰最新，而是它做對了什麼：如何找到市場切入點、建立信任、調整產品、選擇通路，並把一次嘗試變成可持續的市場存在。`}</Phrases>
+                進入日本市場，對任何外國企業都不容易。真正值得我們討論的，不只是誰成功、誰最大、誰最新，而是它做對了什麼：如何找到市場切入點、建立信任、調整產品、選擇通路，並把一次嘗試變成可持續的市場存在。
+              </p>
+              <p className="para">
+                我們希望把這些散落在產業中的觀察，整理成所有準備前往日本的台灣團隊都能使用的參考。
               </p>
             </Band>
 
@@ -160,7 +162,7 @@ export default function HomeVote({
                 </p>
               </div>
               <p className="para">
-                <Phrases>{`請不要只選一個熟悉的名字。告訴我們：它哪一個做法值得學？如果換成另一家公司，這個方法是否仍然有用？`}</Phrases>
+                請不要只選一個熟悉的名字。告訴我們：它哪一個做法值得學？如果換成另一家公司，這個方法是否仍然有用？
               </p>
               <h3 className="subh">你可以從哪些角度回答</h3>
               <ul className="angles">
@@ -173,12 +175,12 @@ export default function HomeVote({
               </ul>
             </Band>
 
-            <Band id="who" chip="03 · Who" title="誰可以被投票" bodyClass="wide">
+            <Band id="who" chip="03 · Who" title="誰可以被投票">
               <p className="lead">
-                <Phrases>{`我們不以公司大小、成立年資或是否上市櫃作為排除條件。早期新創、平台型公司、成熟品牌、大型企業，都可以成為案例。`}</Phrases>
+                我們不以公司大小、成立年資或是否上市櫃作為排除條件。早期新創、平台型公司、成熟品牌、大型企業，都可以成為案例。
               </p>
               <p className="para">
-                <Phrases>{`鼎泰豐算不算新創？每個人的答案可能不同。但只要它進入日本市場的做法值得其他台灣企業借鏡，就值得被討論。重點不是替公司貼上什麼標籤，而是說清楚我們可以從它身上學到什麼。`}</Phrases>
+                鼎泰豐算不算新創？每個人的答案可能不同。但只要它進入日本市場的做法值得其他台灣企業借鏡，就值得被討論。重點不是替公司貼上什麼標籤，而是說清楚我們可以從它身上學到什麼。
               </p>
             </Band>
 
@@ -214,12 +216,12 @@ export default function HomeVote({
               title="沒有看到你心中的遺珠"
             >
               <p className="lead">
-                <Phrases>{`你仍然可以提出新的企業案例。新的公司會先進入「待確認遺珠」，取得超過 10
-                個有效支持，也就是第 11 個不同 email 的支持後，才會正式進入投票池。`}</Phrases>
+                你仍然可以提出新的企業案例。新的公司會先進入「待確認遺珠」，取得超過 10
+                個有效支持，也就是第 11 個不同 email 的支持後，才會正式進入投票池。
               </p>
               <p className="para">
-                <Phrases>{`當它進入正式投票池，先前的資格支持不會直接變成 11 票；它會以 1
-                票起算，接下來和所有正式候選使用相同規則。你可以分享候選連結，邀請更多人支持它進入正式投票。`}</Phrases>
+                當它進入正式投票池，先前的資格支持不會直接變成 11 票；它會以 1
+                票起算，接下來和所有正式候選使用相同規則。你可以分享候選連結，邀請更多人支持它進入正式投票。
               </p>
               <div className="howcta">
                 <Link className="btn btn--red" href="/candidates">
@@ -229,13 +231,13 @@ export default function HomeVote({
               </div>
             </Band>
 
-            <Band id="reasons" chip="07 · Reasons" title="為值得認同的理由按讚" bodyClass="wide">
+            <Band id="reasons" chip="07 · Reasons" title="為值得認同的理由按讚">
               <p className="lead">
-                <Phrases>{`投票之外，你也可以對其他人的理由按讚。每一則理由每累積 10
-                個有效按讚，就替該公司增加 1 票；20 個按讚增加 2 票，以此類推。`}</Phrases>
+                投票之外，你也可以對其他人的理由按讚。每一則理由每累積 10
+                個有效按讚，就替該公司增加 1 票；20 個按讚增加 2 票，以此類推。
               </p>
               <p className="para">
-                <Phrases>{`反對／倒讚可以保留為社群回饋，但不會扣除公司票數，也不會抵銷按讚所增加的票。這個設計要獎勵有共鳴、有啟發性的理由，而不是用負面反應懲罰候選公司。`}</Phrases>
+                反對／倒讚可以保留為社群回饋，但不會扣除公司票數，也不會抵銷按讚所增加的票。這個設計要獎勵有共鳴、有啟發性的理由，而不是用負面反應懲罰候選公司。
               </p>
               <p className="note">{DISLIKE_NOTE}</p>
               <ReasonTabs />
@@ -243,18 +245,18 @@ export default function HomeVote({
               <ResonanceAndTrend />
             </Band>
 
-            <Band id="media" chip="08 · Media" title="關於媒體參與" bodyClass="wide">
+            <Band id="media" chip="08 · Media" title="關於媒體參與">
               <p className="lead">
-                <Phrases>{`媒體是我們會主動邀請的重要參與者之一，因為他們長期觀察產業，也能讓更多案例被看見。但媒體不比創業者、投資人或一般參與者更高一等：大家使用同一入口、遵守同一規則、一人同一票值。`}</Phrases>
+                媒體是我們會主動邀請的重要參與者之一，因為他們長期觀察產業，也能讓更多案例被看見。但媒體不比創業者、投資人或一般參與者更高一等：大家使用同一入口、遵守同一規則、一人同一票值。
               </p>
             </Band>
 
-            <Band id="meaning" chip="09 · What It Means" title="這個結果代表什麼" bodyClass="wide">
+            <Band id="meaning" chip="09 · What It Means" title="這個結果代表什麼">
               <p className="lead">
-                <Phrases>{`最終結果代表社群在這段期間內，對「哪些進入日本市場的方法最值得借鏡」的集體判斷。它不是營收榜、估值榜、公司成敗榜，也不是對任何企業的客觀定論。`}</Phrases>
+                最終結果代表社群在這段期間內，對「哪些進入日本市場的方法最值得借鏡」的集體判斷。它不是營收榜、估值榜、公司成敗榜，也不是對任何企業的客觀定論。
               </p>
               <p className="para">
-                <Phrases>{`我們更在意的是：哪些理由被大家認同、哪些方法可以跨公司複用、哪些市場進入經驗值得下一批台灣團隊帶走。`}</Phrases>
+                我們更在意的是：哪些理由被大家認同、哪些方法可以跨公司複用、哪些市場進入經驗值得下一批台灣團隊帶走。
               </p>
             </Band>
 
