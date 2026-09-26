@@ -943,3 +943,13 @@ a.ccard__name:hover{color:var(--brand);text-decoration:underline;text-underline-
 #closing .liveband__sub{font-size:clamp(15px,1.5vw,17px);font-weight:500}
 #closing .liveband{padding:44px 44px 40px}
 @media (max-width:860px){#closing .liveband{padding:34px 22px 32px}}
+
+/* v8c 2026-09-26 — CJK lines were breaking mid-phrase because the measure was
+   only ~30 characters wide. A ~46-character measure plus strict line breaking
+   keeps punctuation off the start of a line. */
+.lead,.para,.stand,.qbox__q{line-break:strict;text-wrap:pretty}
+.body.wide .lead{max-width:46em;font-size:20px;line-height:1.95}
+@media (max-width:860px){.body.wide .lead{font-size:18px}}
+.nowrap{white-space:nowrap}
+/* Below ~360px even a short clause can outrun the line, so let it wrap freely. */
+@media (max-width:360px){.nowrap{white-space:normal}}
