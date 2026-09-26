@@ -37,8 +37,6 @@ const ANGLES: { k: string; p: string }[] = [
 const VOTE_RULES: string[] = [
   "每個 email 每日有 1 張選票，每張最多選擇 3 家公司。",
   "每投給一家公司，都必須留下具體理由；理由會成為這次研究與市場觀察的一部分。",
-  "每個人、每種身分的票值都相同。媒體、投資人、VC、創辦人、工作者與一般參與者，不另設票池，也不加權。",
-  "Phase 1 的提名次數只用來形成候選池，不帶入本階段正式票數。",
   "同一公司若以不同名稱出現，系統會依公司識別資料合併，避免票數分散。",
 ];
 
@@ -138,7 +136,7 @@ export default function HomeVote({
             </div>
           </div>
 
-          <div className="wrap">
+          <div className="wrap votepage">
             <VoteStatStrip
               voteOpen={stats.vote_open}
               voteClose={stats.vote_close}
@@ -175,16 +173,7 @@ export default function HomeVote({
               </ul>
             </Band>
 
-            <Band id="who" chip="03 · Who" title="誰可以被投票">
-              <p className="lead">
-                我們不以公司大小、成立年資或是否上市櫃作為排除條件。早期新創、平台型公司、成熟品牌、大型企業，都可以成為案例。
-              </p>
-              <p className="para">
-                鼎泰豐算不算新創？每個人的答案可能不同。但只要它進入日本市場的做法值得其他台灣企業借鏡，就值得被討論。重點不是替公司貼上什麼標籤，而是說清楚我們可以從它身上學到什麼。
-              </p>
-            </Band>
-
-            <Band id="rules" chip="04 · Rules" title="投票規則">
+            <Band id="rules" chip="03 · Rules" title="投票規則">
               <ul className="rulelist">
                 {VOTE_RULES.map((r) => (
                   <li key={r}>{r}</li>
@@ -199,7 +188,7 @@ export default function HomeVote({
 
             <Band
               id="results"
-              chip="05 · Community Signal"
+              chip="04 · Community Signal"
               title="目前的社群判斷"
             >
               <ResultBoard />
@@ -212,16 +201,12 @@ export default function HomeVote({
 
             <Band
               id="candidates"
-              chip="06 · Missing Cases"
+              chip="05 · Missing Cases"
               title="沒有看到你心中的遺珠"
             >
               <p className="lead">
                 你仍然可以提出新的企業案例。新的公司會先進入「待確認遺珠」，取得超過 10
                 個有效支持，也就是第 11 個不同 email 的支持後，才會正式進入投票池。
-              </p>
-              <p className="para">
-                當它進入正式投票池，先前的資格支持不會直接變成 11 票；它會以 1
-                票起算，接下來和所有正式候選使用相同規則。你可以分享候選連結，邀請更多人支持它進入正式投票。
               </p>
               <div className="howcta">
                 <Link className="btn btn--red" href="/candidates">
@@ -231,13 +216,10 @@ export default function HomeVote({
               </div>
             </Band>
 
-            <Band id="reasons" chip="07 · Reasons" title="為值得認同的理由按讚">
+            <Band id="reasons" chip="06 · Reasons" title="為值得認同的理由按讚">
               <p className="lead">
                 投票之外，你也可以對其他人的理由按讚。每一則理由每累積 10
                 個有效按讚，就替該公司增加 1 票；20 個按讚增加 2 票，以此類推。
-              </p>
-              <p className="para">
-                反對／倒讚可以保留為社群回饋，但不會扣除公司票數，也不會抵銷按讚所增加的票。這個設計要獎勵有共鳴、有啟發性的理由，而不是用負面反應懲罰候選公司。
               </p>
               <p className="note">{DISLIKE_NOTE}</p>
               <ReasonTabs />
@@ -245,13 +227,13 @@ export default function HomeVote({
               <ResonanceAndTrend />
             </Band>
 
-            <Band id="media" chip="08 · Media" title="關於媒體參與">
+            <Band id="media" chip="07 · Media" title="關於媒體參與">
               <p className="lead">
                 媒體是我們會主動邀請的重要參與者之一，因為他們長期觀察產業，也能讓更多案例被看見。但媒體不比創業者、投資人或一般參與者更高一等：大家使用同一入口、遵守同一規則、一人同一票值。
               </p>
             </Band>
 
-            <Band id="meaning" chip="09 · What It Means" title="這個結果代表什麼">
+            <Band id="meaning" chip="08 · What It Means" title="這個結果代表什麼">
               <p className="lead">
                 最終結果代表社群在這段期間內，對「哪些進入日本市場的方法最值得借鏡」的集體判斷。它不是營收榜、估值榜、公司成敗榜，也不是對任何企業的客觀定論。
               </p>
@@ -288,7 +270,7 @@ export default function HomeVote({
               </div>
             </section>
 
-            <Band id="faq" chip="10 · FAQ" title="常見問題">
+            <Band id="faq" chip="09 · FAQ" title="常見問題">
               <div className="acc">
                 {FAQ.map((f) => (
                   <details key={f.q}>

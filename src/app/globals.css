@@ -915,3 +915,7 @@ a.ccard__name:hover{color:var(--brand);text-decoration:underline;text-underline-
 .cprog__bar i{display:block;height:100%;background:linear-gradient(90deg,var(--secondary),var(--passion))}
 .cprog__n{font-family:var(--cond);font-weight:700;font-size:13px;letter-spacing:.06em;color:var(--muted)}
 .cprog__n b{font-size:18px;color:var(--brand)}
+
+/* v8d 2026-09-26 — on the phase-2 home, prose spans the same width as the blue
+   band above it instead of stopping around the middle of the screen. */
+.votepage .lead,.votepage .para{max-width:none}

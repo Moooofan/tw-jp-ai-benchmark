@@ -129,10 +129,6 @@ export default function CandidatesClient({
             <div className="flow">
               <form className="formcard" noValidate onSubmit={submit}>
                 <h3>提名一個遺珠</h3>
-                <p>
-                  當它進入正式投票池，先前的資格支持不會直接變成 11 票；它會以 1
-                  票起算，接下來和所有正式候選使用相同規則。你可以分享候選連結，邀請更多人支持它進入正式投票。
-                </p>
                 <div className="f">
                   <label htmlFor="cand-name">
                     <Icon icon={Building2} />
