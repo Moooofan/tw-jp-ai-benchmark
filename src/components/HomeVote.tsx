@@ -227,13 +227,7 @@ export default function HomeVote({
               <ResonanceAndTrend />
             </Band>
 
-            <Band id="media" chip="07 · Media" title="關於媒體參與">
-              <p className="lead">
-                媒體是我們會主動邀請的重要參與者之一，因為他們長期觀察產業，也能讓更多案例被看見。但媒體不比創業者、投資人或一般參與者更高一等：大家使用同一入口、遵守同一規則、一人同一票值。
-              </p>
-            </Band>
-
-            <Band id="meaning" chip="08 · What It Means" title="這個結果代表什麼">
+            <Band id="meaning" chip="07 · What It Means" title="這個結果代表什麼">
               <p className="lead">
                 最終結果代表社群在這段期間內，對「哪些進入日本市場的方法最值得借鏡」的集體判斷。它不是營收榜、估值榜、公司成敗榜，也不是對任何企業的客觀定論。
               </p>
@@ -270,7 +264,7 @@ export default function HomeVote({
               </div>
             </section>
 
-            <Band id="faq" chip="09 · FAQ" title="常見問題">
+            <Band id="faq" chip="08 · FAQ" title="常見問題">
               <div className="acc">
                 {FAQ.map((f) => (
                   <details key={f.q}>
