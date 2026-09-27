@@ -170,7 +170,7 @@ export default function BallotClient({
     const key = c.domain || `typed:${c.display_name.toLowerCase()}`;
     if (slots.some((s) => slotKey(s) === key)) return;
     if (slots.length >= MAX_PICKS) {
-      setErr("每張選票最多選 3 家公司，請先移除一家。");
+      setErr("每個 email 每天最多投給 3 家企業，請先移除一家。");
       return;
     }
     setSlots((s) => [
@@ -243,16 +243,16 @@ export default function BallotClient({
         <>
           <h3>投票已截止</h3>
           <p>投票已截止，{stats.results_label}直播揭曉。</p>
-          <Link className="btn btn--ghost" href="/">
-            回到首頁
+          <Link className="btn btn--ghost" href="/phase-two">
+            回到 Phase Two 首頁
           </Link>
         </>
       ) : (
         <>
           <h3>投票尚未開始</h3>
           <p>投票將於 {monthDay(stats.vote_open)} 開始。</p>
-          <Link className="btn btn--ghost" href="/">
-            回到首頁
+          <Link className="btn btn--ghost" href="/phase-two">
+            回到 Phase Two 首頁
           </Link>
         </>
       );
@@ -263,11 +263,15 @@ export default function BallotClient({
         <span className="okmark" aria-hidden="true">
           ✓
         </span>
-        {/* 投票完成 / 已達每日上限, verbatim (locked doc v1.0 §介面微文案). */}
+        {/* 投票完成 / 已達每日上限, verbatim (memo v3.0 §介面微文案). One
+            submission per email per day, so fewer than three picks still
+            closes the day: say so without claiming three. */}
         <h3>
-          {limit
-            ? "你今天的選票已使用完畢，明天可以再次參與。"
-            : "已收到你的選擇。謝謝你把可借鏡的方法說清楚。"}
+          {!limit
+            ? "已收到你的選擇。謝謝你把值得借鏡的方法說清楚。"
+            : done.length >= MAX_PICKS
+              ? "你今天已投滿三家企業，明天可以再次參與。"
+              : "你今天已完成投票，明天可以再次參與。"}
         </h3>
         <ol className="donepicks">
           {done.map((d, i) => (
@@ -285,11 +289,11 @@ export default function BallotClient({
         </ol>
         <Countdown />
         <div className="after">
-          <Link className="btn btn--red" href="/#results">
+          <Link className="btn btn--red" href="/phase-two#results">
             看目前結果
             <Icon icon={ArrowRight} />
           </Link>
-          <Link className="btn btn--ghost" href="/#reasons">
+          <Link className="btn btn--ghost" href="/phase-two#reasons">
             為其他人的理由按讚
           </Link>
         </div>
@@ -356,7 +360,7 @@ export default function BallotClient({
             提出新的企業案例；取得 11 個有效支持後，它就會進入正式投票池。
           </p>
 
-          <ol className="slots" aria-label="我的選票">
+          <ol className="slots" aria-label="我今天投給的企業">
             {Array.from({ length: MAX_PICKS }, (_, i) => {
               const s = slots[i];
               if (!s) {
@@ -425,7 +429,7 @@ export default function BallotClient({
             className="btn btn--red"
             disabled={busy || !emailOk || slots.length === 0}
           >
-            {busy ? "送出中…" : "送出今天的票"}
+            {busy ? "送出中…" : "送出投票"}
             <Icon icon={ArrowRight} />
           </button>
         </div>
@@ -437,9 +441,9 @@ export default function BallotClient({
     <SiteChrome stats={stats}>
       <div className="pagehero">
         <div className="wrap">
-          <span className="chip">Vote</span>
-          <h1>投下今天的一票</h1>
-          <p>最多選三家，每家寫一句為什麼。</p>
+          <span className="chip">Phase Two · Vote</span>
+          <h1>開始投票</h1>
+          <p>每個 email 每天最多投給 3 家企業，每投給 1 家企業都必須寫下具體理由。</p>
         </div>
       </div>
       <div className="wrap">
@@ -452,20 +456,20 @@ export default function BallotClient({
             <ul className="checks">
               <li>
                 <Icon icon={SquareCheckBig} />
-                每天一張
+                每個 email 每天最多 3 家
               </li>
               <li>
                 <Icon icon={ListChecks} />
-                最多三家
+                一次送出，當天不再追加
               </li>
               <li>
                 <Icon icon={MessageSquareText} />
-                每家一句理由
+                每家都寫具體理由
               </li>
             </ul>
             <hr />
             <p className="fine">
-              Email 不公開，只用來確認一人一天一張票。
+              Email 不公開，只用來確認每個 email 每天最多投給 3 家企業。
             </p>
             <p className="fine">
               找不到想投的公司？可以到 <Link href="/candidates">遺珠之憾</Link>{" "}

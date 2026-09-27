@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import CandidateShare from "@/components/CandidateShare";
 import { normalizeDomain } from "@/lib/format";
-import { isPhaseOne, previewFromQuery, publicStats } from "@/lib/phase";
+import { phaseTwoGate, phaseTwoOpen, publicStats } from "@/lib/phase";
 import { loadCandidateDetail, loadStats } from "@/lib/site-data";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +27,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { domain } = await params;
   const stats = await loadStats();
-  if (isPhaseOne(stats.phase)) return {};
+  if (!phaseTwoOpen(stats)) return {};
   const detail = await loadCandidateDetail(domainOf(domain)).catch(() => null);
   if (!detail) return { robots: { index: false } };
   return {
@@ -47,9 +47,8 @@ export default async function Page({
   const { domain } = await params;
   const sp = await searchParams;
   const loaded = await loadStats();
-  const preview = previewFromQuery(sp);
-  const stats = preview ? { ...loaded, phase: preview } : loaded;
-  if (isPhaseOne(stats.phase)) redirect("/");
+  const { stats, open } = phaseTwoGate(loaded, sp);
+  if (!open) redirect("/");
   const detail = await loadCandidateDetail(domainOf(domain));
   if (!detail) notFound();
   return <CandidateShare stats={publicStats(stats)} candidate={detail} />;

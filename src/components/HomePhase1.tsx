@@ -3,7 +3,9 @@ import {
   CalendarDays,
   Info,
 } from "lucide-react";
-import { dateRange } from "@/lib/format";
+import Link from "next/link";
+import { dateRange, hhmm, monthDay } from "@/lib/format";
+import { isPhaseOne } from "@/lib/phase";
 import type { Board, Stats } from "@/lib/types";
 import BackgroundBand from "./BackgroundBand";
 import Band from "./Band";
@@ -33,20 +35,27 @@ const faqItems = (): { q: string; a: string }[] => [
 
 
 /**
- * `/` in pre / nominate (spec v6 §3): one question, a frictionless nomination entry,
- * nothing about what happens next. Server component.
+ * `/` in every phase (spec v6 §3; owner 2026-09-27): one question, a
+ * frictionless nomination entry. From `nominate_close` on it shows the
+ * nomination period as ended — no form, frozen board — and, once Phase Two is
+ * public, links to it (`phaseTwoHref`). It never renders Phase Two itself.
+ * Server component.
  */
 export default function HomePhase1({
   stats,
   board,
+  phaseTwoHref,
 }: {
   stats: Stats;
   board: Board;
+  /** Set once Phase Two is public: the nominations-ended CTA points here. */
+  phaseTwoHref?: string;
 }) {
   const open = stats.phase === "nominate";
+  const ended = !isPhaseOne(stats.phase);
   return (
-    <SiteChrome stats={stats} home>
-      <BoardProvider board={board}>
+    <SiteChrome stats={stats} home track="one" phaseTwoHref={phaseTwoHref}>
+      <BoardProvider board={board} live={!ended}>
         <div className="hero hero--p1">
           <div className="hero__ghost" aria-hidden="true">
             TAIWAN → JAPAN
@@ -62,21 +71,37 @@ export default function HomePhase1({
                 最值得作為<span className="hl">日本市場</span>發展案例？
               </h1>
               <p className="stand">
-                輸入公司名稱就能提名，不用註冊，也不用留 Email。
+                {ended
+                  ? "提名期間已結束，謝謝每一位提名的人。候選名單已凍結，不再接受新的提名。"
+                  : "輸入公司名稱就能提名，不用註冊，也不用留 Email。"}
               </p>
               <ul className="herodates" aria-label="提名期間">
                 <li className={open ? "is-now" : undefined}>
                   <Icon icon={CalendarDays} />
-                  <span className="herodates__k">提名期間</span>
+                  <span className="herodates__k">
+                    {ended ? "提名期間（已結束）" : "提名期間"}
+                  </span>
                   <span className="herodates__v">
                     {dateRange(stats.nominate_open, stats.nominate_close)}
                   </span>
                 </li>
               </ul>
               <div className="hero__cta">
-                <NominateCta stats={stats}>
-                  <Icon icon={ArrowRight} />
-                </NominateCta>
+                {!ended ? (
+                  <NominateCta stats={stats}>
+                    <Icon icon={ArrowRight} />
+                  </NominateCta>
+                ) : phaseTwoHref ? (
+                  <Link className="btn btn--red" href={phaseTwoHref}>
+                    前往 Phase Two 投票
+                    <Icon icon={ArrowRight} />
+                  </Link>
+                ) : (
+                  <span className="btn btn--red btn--wait" aria-disabled="true">
+                    Phase Two 投票將於 {monthDay(stats.vote_open)}{" "}
+                    {hhmm(stats.vote_open)} 開放
+                  </span>
+                )}
                 <a className="btn btn--line" href="#background">
                   先看前情提要
                 </a>

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import CompanyPage from "@/components/CompanyPage";
 import { normalizeDomain } from "@/lib/format";
-import { isPhaseOne, publicStats } from "@/lib/phase";
+import { phaseTwoGate, phaseTwoOpen, publicStats } from "@/lib/phase";
 import {
   loadCompanyDetail,
   loadReasonCorpus,
@@ -13,6 +13,7 @@ import { wordCloud } from "@/lib/wordcloud";
 export const revalidate = 300;
 
 type Params = Promise<{ domain: string }>;
+type Search = Promise<Record<string, string | string[] | undefined>>;
 
 function domainOf(raw: string): string {
   let d = raw;
@@ -31,7 +32,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { domain } = await params;
   const stats = await loadStats();
-  if (isPhaseOne(stats.phase)) return {};
+  if (!phaseTwoOpen(stats)) return {};
   const detail = await loadCompanyDetail(domainOf(domain)).catch(() => null);
   if (!detail) return { robots: { index: false } };
   return {
@@ -40,11 +41,17 @@ export async function generateMetadata({
   };
 }
 
-/** `/company/[domain]` (spec v7b §3): vote, closed and results only. */
-export default async function Page({ params }: { params: Params }) {
+/** `/company/[domain]` (spec v7b §3): Phase Two only (same gate as `/phase-two`). */
+export default async function Page({
+  params,
+  searchParams,
+}: {
+  params: Params;
+  searchParams: Search;
+}) {
   const { domain } = await params;
-  const stats = await loadStats();
-  if (isPhaseOne(stats.phase)) redirect("/");
+  const { stats, open } = phaseTwoGate(await loadStats(), await searchParams);
+  if (!open) redirect("/");
   const d = domainOf(domain);
   const detail = await loadCompanyDetail(d);
   if (!detail) notFound();

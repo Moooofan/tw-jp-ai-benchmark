@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import CandidatesClient from "@/components/CandidatesClient";
-import { isPhaseOne, previewFromQuery, publicStats } from "@/lib/phase";
+import { phaseTwoGate, publicStats } from "@/lib/phase";
 import { loadPendingCandidates, loadStats } from "@/lib/site-data";
 
 export const dynamic = "force-dynamic";
@@ -20,9 +20,8 @@ export default async function CandidatesPage({
 }) {
   const sp = await searchParams;
   const loaded = await loadStats();
-  const preview = previewFromQuery(sp);
-  const stats = preview ? { ...loaded, phase: preview } : loaded;
-  if (isPhaseOne(stats.phase)) redirect("/");
+  const { stats, open } = phaseTwoGate(loaded, sp);
+  if (!open) redirect("/");
   const initial = await loadPendingCandidates();
   return <CandidatesClient stats={publicStats(stats)} initial={initial} />;
 }

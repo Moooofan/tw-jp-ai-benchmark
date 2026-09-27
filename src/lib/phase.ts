@@ -77,8 +77,9 @@ export function isVotePhase(phase: Phase): boolean {
 }
 
 /**
- * Stats as the vote / closed pages may ship them to the browser: the results
- * story (ximu / IQ Lite links, partners) stays blank until results.
+ * Stats as the vote / closed pages may ship them to the browser. Memo v3.0
+ * revokes the Phase 1 rule that hid ximu, so `ximu_url` now ships; the IQ Lite
+ * link and the partner text stay blank until results.
  */
 export function publicStats(stats: Stats): Stats {
   if (isPhaseOne(stats.phase)) return phaseOneStats(stats);
@@ -86,7 +87,6 @@ export function publicStats(stats: Stats): Stats {
   const {
     /* eslint-disable @typescript-eslint/no-unused-vars */
     iqlite_url,
-    ximu_url,
     partners_text,
     /* eslint-enable @typescript-eslint/no-unused-vars */
     contact_email,
@@ -114,4 +114,52 @@ export function previewFromQuery(
   if (given !== key) return null;
   const raw = Array.isArray(params.preview) ? params.preview[0] : params.preview;
   return raw && PHASES.includes(raw as Phase) ? (raw as Phase) : null;
+}
+
+/**
+ * Phase One stats for `/` in every phase (owner, 2026-09-27: Phase One and
+ * Phase Two live on different URLs). `/` never shows the later story, so the
+ * Phase 1 blanking applies even after nominations close.
+ */
+export function nominationStats(stats: Stats): Stats {
+  if (isPhaseOne(stats.phase)) return phaseOneStats(stats);
+  return { ...phaseOneStats({ ...stats, phase: "nominate" }), phase: stats.phase };
+}
+
+/**
+ * Is Phase Two public right now? `effective_phase()` already says 'vote'
+ * from `vote_open`, but between `nominate_close` (09-27 23:59) and
+ * `vote_open` (09-28 12:00) it says 'closed' too — that gap is NOT Phase Two.
+ * 'closed' only counts once `vote_open` has passed (voting over).
+ */
+export function phaseTwoOpen(
+  stats: Pick<Stats, "phase" | "vote_open">,
+  now: number = Date.now(),
+): boolean {
+  if (stats.phase === "vote" || stats.phase === "results") return true;
+  if (stats.phase !== "closed") return false;
+  const t = stats.vote_open ? Date.parse(stats.vote_open) : NaN;
+  return Number.isFinite(t) && now >= t;
+}
+
+/** Path of the Phase Two home (owner, 2026-09-27). `/` stays Phase One. */
+export const PHASE_TWO_PATH = "/phase-two";
+
+/**
+ * Gate for every Phase Two route (`/phase-two`, `/vote`, `/candidates…`,
+ * `/company/…`). A valid owner preview (`?preview=vote|closed|results&key=`)
+ * opens it early; otherwise it opens with {@link phaseTwoOpen}.
+ */
+export function phaseTwoGate(
+  loaded: Stats,
+  params: Record<string, string | string[] | undefined> | undefined,
+): { stats: Stats; open: boolean } {
+  const preview = previewFromQuery(params);
+  if (preview) {
+    return {
+      stats: { ...loaded, phase: preview },
+      open: preview === "vote" || preview === "closed" || preview === "results",
+    };
+  }
+  return { stats: loaded, open: phaseTwoOpen(loaded) };
 }

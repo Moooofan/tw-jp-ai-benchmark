@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { ArrowRight, Info } from "lucide-react";
+import { ArrowDown, ArrowRight } from "lucide-react";
 import { hhmm, monthDay } from "@/lib/format";
+import { PHASE_TWO_PATH } from "@/lib/phase";
 import type { Stats, VoteBoard } from "@/lib/types";
 import Band from "./Band";
 import {
@@ -15,50 +16,62 @@ import Icon from "./Icon";
 import KeywordStrip from "./KeywordStrip";
 import { DISLIKE_NOTE, ReactionProvider } from "./Reactions";
 import ShareRow from "./ShareRow";
-import SiteChrome, { DISCLAIMER } from "./SiteChrome";
+import SiteChrome, {
+  CAMPAIGN_EN,
+  CAMPAIGN_ZH,
+  DISCLAIMER,
+  STRATEGY_LINE,
+} from "./SiteChrome";
 
 /**
- * Every line below is quoted from the locked document
- * `phase2-locked-doc-v1.0` 「完整投票頁面文案」 (v1.0, 2026-09-24, decision
- * maker JT) and must not be paraphrased, shortened or "improved" — spec v8 §4.
+ * `/phase-two` — the Phase Two home. Copy is quoted from the execution memo
+ * v3.0 (2026-09-27) 「四 可直接上線的頁面文案」 and the owner's HOW / OUTCOME
+ * wording; first screen = Hero + three equal boxes WHY / HOW / OUTCOME
+ * (memo §二, reference image TWJP_Phase2_Page_Reference_20260927).
  */
 
-const H1 = "如果你準備進入日本市場，哪一家台灣企業的做法最值得借鏡？";
+export const P2_TITLE = "把「我推薦誰」，變成「為什麼值得帶往日本」。";
+export const P2_SUB =
+  "透過人類票選與具體理由，找出最值得借鏡的赴日方法；再以 ximu 檢驗並公開演示 IQ Lite 的產出過程，讓選擇成為可以使用的市場決策。";
 
-const ANGLES: { k: string; p: string }[] = [
-  { k: "市場進入", p: "它如何找到第一個切入點？" },
-  { k: "在地化", p: "它如何調整產品、服務、定價或溝通？" },
-  { k: "品牌與信任", p: "它如何被日本消費者、客戶或夥伴接受？" },
-  { k: "通路與夥伴", p: "它如何選擇合作方式、銷售路徑或在地資源？" },
-  { k: "組織與執行", p: "它如何承擔長期投入、反覆調整與跨文化協作？" },
-  { k: "其他", p: "任何你認為其他台灣企業可以帶走的具體經驗。" },
+/** HOW, exactly as the owner fixed it (memo v3.0 §四; no ballot wording). */
+const HOW_RULES: string[] = [
+  "投票期間 9 月 28 日至 10 月 6 日",
+  "每個 email 每天最多投給 3 家企業",
+  "每投給 1 家企業都必須寫下具體理由",
+  "每則理由累積 10 個有效讚，該企業增加 1 票",
+  "倒讚只作為回饋，不扣除票數",
+  "新案例取得第 11 個不同 email 支持後，以 1 票進入正式投票池",
+  "Phase One 的提名數不帶入 Phase Two",
 ];
 
-const VOTE_RULES: string[] = [
-  "每個 email 每日有 1 張選票，每張最多選擇 3 家公司。",
-  "每投給一家公司，都必須留下具體理由；理由會成為這次研究與市場觀察的一部分。",
-  "同一公司若以不同名稱出現，系統會依公司識別資料合併，避免票數分散。",
+/** OUTCOME, exactly as the owner fixed it. */
+const OUTCOME_ITEMS: string[] = [
+  "公開 Community Top 10",
+  "從 Top 10 產生 Top 3 Featured Companies",
+  "Top 3 每家獲贈一份價值 US$180 的 IQ Lite 日本市場報告",
+  "公開演示從 ximu 檢驗、分析到 IQ Lite 完成產出的完整過程",
 ];
 
-/** 結果區 notes, verbatim (spec v8 §5). */
+/** 結果限制 (memo §五) + the reason-vote rule. */
 const RESULT_NOTES: string[] = [
-  "排序依正式票數即時計算；每一則理由每滿 10 個有效按讚，替該公司增加 1 票。倒讚僅供回饋，不扣票。",
-  "這個結果代表社群認為最值得借鏡的方法，不是營收、估值或公司成敗的排名。",
+  "排序依正式票數即時計算；每則理由累積 10 個有效讚，該企業增加 1 票。倒讚只作為回饋，不扣除票數。",
+  "這個結果反映社群在本階段認為值得借鏡的方法，不是營收、估值、成功或企業價值的客觀排名。",
 ];
 
-/** The document's seven questions, replacing the six v7b ones (spec v8 §4). */
+/** FAQ: no media / profession / identity / weighting items (memo §六). */
 const FAQ: { q: string; a: string }[] = [
   {
     q: "這是新創票選，為什麼成熟品牌也能參加？",
     a: "因為這次要找的是「值得借鏡的日本市場進入方法」，不是用成立年資或公司規模判定誰比較好。只要案例能提供可學習的方法，就值得被討論。",
   },
   {
-    q: "Phase 1 被提名很多次，會不會直接領先？",
-    a: "不會。Phase 1 提名次數只用來形成候選池。進入 Phase 2 後，正式票數重新計算。",
+    q: "Phase One 被提名很多次，會不會直接領先？",
+    a: "不會。Phase One 的提名數只用來形成候選池，不帶入 Phase Two；正式票數重新計算。",
   },
   {
-    q: "Phase 2 新增的公司如何進入正式投票？",
-    a: "先成為待確認遺珠；取得第 11 個不同、有效 email 支持後進入正式投票池，並以 1 票起算。",
+    q: "Phase Two 新增的公司如何進入正式投票？",
+    a: "先成為待確認遺珠；取得第 11 個不同 email 的支持後，以 1 票進入正式投票池。",
   },
   {
     q: "為什麼資格支持不直接算成 11 票？",
@@ -66,11 +79,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "按讚與倒讚如何影響票數？",
-    a: "每一則理由每滿 10 個有效按讚，替公司增加 1 票。倒讚只作為回饋，不扣票、不抵銷按讚。",
-  },
-  {
-    q: "媒體的票比較重要嗎？",
-    a: "不會。媒體是重要的 outreach 對象，但與所有參與者使用相同規則與相同票值。",
+    a: "每則理由累積 10 個有效讚，該企業增加 1 票；20 個讚增加 2 票，以此類推。倒讚只作為回饋，不扣除票數，也不抵銷按讚。",
   },
   {
     q: "結果是不是代表最成功的公司？",
@@ -78,11 +87,6 @@ const FAQ: { q: string; a: string }[] = [
   },
 ];
 
-/**
- * `/` in vote / closed: the phase-2 voting page (spec v8 §4–§5), rewritten to
- * the locked document's copy and section order. Server component; the result
- * area and the reactions are client islands.
- */
 export default function HomeVote({
   stats,
   board,
@@ -93,104 +97,156 @@ export default function HomeVote({
   cloud: CloudWord[];
 }) {
   const closed = stats.phase === "closed";
+  const range =
+    stats.vote_open && stats.vote_close
+      ? `${monthDay(stats.vote_open)}–${monthDay(stats.vote_close)}`
+      : "9/28–10/06";
   return (
-    <SiteChrome stats={stats} home>
+    <SiteChrome stats={stats} home track="two">
       <BoardProvider initial={board}>
         <ReactionProvider open={!closed}>
-          <div className="hero hero--p1">
-            <div className="hero__ghost" aria-hidden="true">
-              TAIWAN → JAPAN
-            </div>
-            <div className="wrap">
-              <div>
-                <span className="chip">TAIWAN → JAPAN 2026</span>
-                <h1>{H1}</h1>
-                <p className="stand">
-                  無論是剛起步的新創、平台型企業、上市櫃公司，或已經成熟的品牌，只要它正在或已經進入日本市場，就可能有值得我們學習的方法。不是因為它大就更好，也不是因為它小就該被忽略。
+          <div className="hero p2hero">
+            <div className="wrap wrap--wide">
+              <div className="p2hero__main">
+                <p className="p2hero__kicker">
+                  <span className="p2hero__zh">{CAMPAIGN_ZH}</span>
+                  <span className="p2hero__en">{CAMPAIGN_EN}</span>
+                  <span className="p2hero__phase">PHASE TWO | COMMUNITY VOTING</span>
                 </p>
-                <div className="hero__cta">
-                  {closed ? (
-                    <a className="btn btn--red" href="#results">
-                      看目前結果
-                      <Icon icon={ArrowRight} />
-                    </a>
-                  ) : (
-                    <Link className="btn btn--red" href="/vote">
-                      開始投票
-                      <Icon icon={ArrowRight} />
-                    </Link>
-                  )}
-                  <Link className="btn btn--line" href="/candidates">
-                    提名遺珠之憾
-                  </Link>
-                </div>
-                <p className="hero__disc">
-                  <Icon icon={Info} />
-                  <span>{DISCLAIMER}</span>
-                </p>
+                <h1>
+                  把「我推薦誰」，
+                  <br />
+                  變成「為什麼值得帶往日本」。
+                </h1>
+                <p className="p2hero__sub">{P2_SUB}</p>
               </div>
-              <div className="vert" aria-hidden="true">
-                <span>台灣企業</span>
-                <span>前進日本</span>
+              <div className="p2hero__act">
+                {closed ? (
+                  <a className="btn p2hero__cta" href="#results">
+                    看目前結果
+                    <Icon icon={ArrowRight} />
+                  </a>
+                ) : (
+                  <Link className="btn p2hero__cta" href="/vote">
+                    開始投票
+                    <Icon icon={ArrowRight} />
+                  </Link>
+                )}
+                <p className="p2hero__meta">
+                  {closed ? (
+                    "投票已截止，結果整理中"
+                  ) : (
+                    <>
+                      <span>{range}</span> · <span>每個 email 每天最多投給 3 家企業</span>
+                    </>
+                  )}
+                </p>
               </div>
             </div>
           </div>
 
-          <div className="wrap votepage">
+          <div className="wrap wrap--wide">
+            <div className="p2boxes">
+              <section className="p2box" aria-labelledby="box-why">
+                <p className="p2box__k">01 · WHY</p>
+                <h2 id="box-why">我們為什麼做</h2>
+                <p className="p2box__lead">
+                  提名讓我們看見情感與意圖；Phase Two 要找出哪些赴日方法值得理解、借鏡與複用。
+                </p>
+                <ul className="p2box__list">
+                  <li>蒐集人類的選擇、理由與共鳴</li>
+                  <li>以 Humans + AI 共同判讀，形成形象資產</li>
+                  <li>找出日本市場的機會與定向增長方法</li>
+                </ul>
+                <a className="p2box__more" href="#why">
+                  從推薦意圖，走向決策依據
+                  <Icon icon={ArrowDown} />
+                </a>
+              </section>
+
+              <section className="p2box" aria-labelledby="box-how">
+                <p className="p2box__k">02 · HOW</p>
+                <h2 id="box-how">怎麼投</h2>
+                <ul className="p2box__list p2box__list--rules">
+                  {HOW_RULES.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+                <a className="p2box__more" href="#how">
+                  完整規則
+                  <Icon icon={ArrowDown} />
+                </a>
+              </section>
+
+              <section className="p2box p2box--deep" aria-labelledby="box-outcome">
+                <p className="p2box__k">03 · OUTCOME</p>
+                <h2 id="box-outcome">投完之後</h2>
+                <p className="p2box__lead">
+                  讓選擇不只停在名次，而是經過檢驗，成為可以採取行動的市場判斷。
+                </p>
+                <ul className="p2box__list">
+                  {OUTCOME_ITEMS.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+                <a className="p2box__more" href="#outcome">
+                  報告、示範與後續公開
+                  <Icon icon={ArrowDown} />
+                </a>
+              </section>
+            </div>
+
+            <div className="p2spine" aria-label="策略主軸">
+              <span>形象資產治理</span>
+              <i aria-hidden="true">→</i>
+              <span>Humans + AI 決策</span>
+              <i aria-hidden="true">→</i>
+              <span>定向增長</span>
+              <small>{STRATEGY_LINE}</small>
+            </div>
+          </div>
+
+          <div className="wrap wrap--wide votepage">
             <VoteStatStrip
               voteOpen={stats.vote_open}
               voteClose={stats.vote_close}
               closed={closed}
             />
 
-            <Band id="why" chip="01 · Why" title="為什麼要做這次投票">
+            <Band id="why" chip="01 · Why" title="我們為什麼做">
               <p className="lead">
-                進入日本市場，對任何外國企業都不容易。真正值得我們討論的，不只是誰成功、誰最大、誰最新，而是它做對了什麼：如何找到市場切入點、建立信任、調整產品、選擇通路，並把一次嘗試變成可持續的市場存在。
+                Phase One 呈現的是「人類看見誰、願意推薦誰」。但看見與推薦本身，還不足以支持真正的市場行動。Phase Two 要進一步取得：人們選擇誰、為什麼選擇、哪些理由得到更多人支持，以及這些理由是否能經過檢驗，轉化為進入日本市場的決策依據。
               </p>
               <p className="para">
-                我們希望把這些散落在產業中的觀察，整理成所有準備前往日本的台灣團隊都能使用的參考。
+                人的觀察帶有情感、經驗與意圖；AI 則是資訊收集、理解與擴散的重要入口。這次不是單獨談 AI，而是透過 Humans + AI 的共同判讀，把票選與理由轉化為可管理的形象資產，進一步找出日本市場的機會、賽道與定向增長方法。
               </p>
             </Band>
 
-            <Band id="question" chip="02 · The Question" title="這次要回答的問題">
-              <div className="qbox">
-                <span className="qbox__k">投票題目</span>
-                <p className="qbox__q">
-                  如果你是準備進入日本市場的台灣新創，你認為哪一家台灣企業的做法最值得借鏡？為什麼？
-                </p>
-              </div>
-              <p className="para">
-                請不要只選一個熟悉的名字。告訴我們：它哪一個做法值得學？如果換成另一家公司，這個方法是否仍然有用？
+            <Band id="how" chip="02 · How" title="怎麼投">
+              <ul className="rulelist" id="rules">
+                {HOW_RULES.map((r) => (
+                  <li key={r}>{r}。</li>
+                ))}
+              </ul>
+              <p className="note">
+                理由請寫下具體做法，而不只是一句「我喜歡這家公司」。同一公司若以不同名稱出現，系統會依官方網域合併，避免票數分散；按讚以 email 去重。
               </p>
-              <h3 className="subh">你可以從哪些角度回答</h3>
-              <ul className="angles">
-                {ANGLES.map((a) => (
-                  <li key={a.k}>
-                    <b>{a.k}</b>
-                    <span>{a.p}</span>
-                  </li>
-                ))}
-              </ul>
-            </Band>
-
-            <Band id="rules" chip="03 · Rules" title="投票規則">
-              <ul className="rulelist">
-                {VOTE_RULES.map((r) => (
-                  <li key={r}>{r}</li>
-                ))}
-              </ul>
               {stats.vote_close ? (
                 <p className="deadline">
                   投票截止：{monthDay(stats.vote_close)} {hhmm(stats.vote_close)}
                 </p>
               ) : null}
+              {closed ? null : (
+                <div className="howcta">
+                  <Link className="btn btn--red" href="/vote">
+                    開始投票
+                    <Icon icon={ArrowRight} />
+                  </Link>
+                </div>
+              )}
             </Band>
 
-            <Band
-              id="results"
-              chip="04 · Community Signal"
-              title="目前的社群判斷"
-            >
+            <Band id="results" chip="Community Signal" title="目前的社群判斷">
               <ResultBoard />
               {RESULT_NOTES.map((n) => (
                 <p className="note" key={n}>
@@ -199,14 +255,9 @@ export default function HomeVote({
               ))}
             </Band>
 
-            <Band
-              id="candidates"
-              chip="05 · Missing Cases"
-              title="沒有看到你心中的遺珠"
-            >
+            <Band id="candidates" chip="Missing Cases" title="沒有看到你心中的遺珠">
               <p className="lead">
-                你仍然可以提出新的企業案例。新的公司會先進入「待確認遺珠」，取得超過 10
-                個有效支持，也就是第 11 個不同 email 的支持後，才會正式進入投票池。
+                你仍然可以提出新的企業案例。新的公司會先進入「待確認遺珠」，取得第 11 個不同 email 的支持後，以 1 票進入正式投票池。
               </p>
               <div className="howcta">
                 <Link className="btn btn--red" href="/candidates">
@@ -216,10 +267,9 @@ export default function HomeVote({
               </div>
             </Band>
 
-            <Band id="reasons" chip="06 · Reasons" title="為值得認同的理由按讚">
+            <Band id="reasons" chip="Reasons" title="為值得認同的理由按讚">
               <p className="lead">
-                投票之外，你也可以對其他人的理由按讚。每一則理由每累積 10
-                個有效按讚，就替該公司增加 1 票；20 個按讚增加 2 票，以此類推。
+                投票之外，你也可以對其他人的理由按讚。每則理由累積 10 個有效讚，該企業增加 1 票；20 個讚增加 2 票，以此類推。
               </p>
               <p className="note">{DISLIKE_NOTE}</p>
               <ReasonTabs />
@@ -227,12 +277,15 @@ export default function HomeVote({
               <ResonanceAndTrend />
             </Band>
 
-            <Band id="meaning" chip="07 · What It Means" title="這個結果代表什麼">
-              <p className="lead">
-                最終結果代表社群在這段期間內，對「哪些進入日本市場的方法最值得借鏡」的集體判斷。它不是營收榜、估值榜、公司成敗榜，也不是對任何企業的客觀定論。
-              </p>
-              <p className="para">
-                我們更在意的是：哪些理由被大家認同、哪些方法可以跨公司複用、哪些市場進入經驗值得下一批台灣團隊帶走。
+            <Band id="outcome" chip="03 · Outcome" title="投完之後">
+              <ul className="rulelist">
+                {OUTCOME_ITEMS.map((r) => (
+                  <li key={r}>{r}。</li>
+                ))}
+                <li>後續公開報告、示範影片與橫向市場觀察。</li>
+              </ul>
+              <p className="para p2outcome__close">
+                這不是抽象的獎勵，而是讓市場實際看到：一個人類的選擇與理由，如何經過檢驗，成為可採取行動的市場判斷與形象資產。
               </p>
             </Band>
 
@@ -242,7 +295,7 @@ export default function HomeVote({
                   把你看見的方法，留給下一個準備進入日本市場的人。
                 </p>
                 <p className="liveband__sub">
-                  選出你認為最值得借鏡的企業，並告訴我們為什麼。
+                  每個 email 每天最多投給 3 家企業，每家都寫下具體理由。
                 </p>
                 <div className="liveband__cta">
                   {closed ? (
@@ -252,19 +305,19 @@ export default function HomeVote({
                     </a>
                   ) : (
                     <Link className="btn btn--red" href="/vote">
-                      立即投票
+                      開始投票
                       <Icon icon={ArrowRight} />
                     </Link>
                   )}
                   <span className="liveband__share">
                     <span className="liveband__sharek">分享投票頁</span>
-                    <ShareRow text={H1} />
+                    <ShareRow text={P2_TITLE} path={PHASE_TWO_PATH} />
                   </span>
                 </div>
               </div>
             </section>
 
-            <Band id="faq" chip="08 · FAQ" title="常見問題">
+            <Band id="faq" chip="FAQ" title="常見問題">
               <div className="acc">
                 {FAQ.map((f) => (
                   <details key={f.q}>
@@ -273,6 +326,7 @@ export default function HomeVote({
                   </details>
                 ))}
               </div>
+              <p className="note">{DISCLAIMER}</p>
             </Band>
           </div>
         </ReactionProvider>

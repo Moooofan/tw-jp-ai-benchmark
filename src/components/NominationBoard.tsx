@@ -38,9 +38,12 @@ const BoardContext = createContext<{ board: Board; now: number | null }>({
  */
 export function BoardProvider({
   board: initial,
+  live = true,
   children,
 }: {
   board: Board;
+  /** False once nominations have closed: the board is frozen, no polling. */
+  live?: boolean;
   children: ReactNode;
 }) {
   const [board, setBoard] = useState<Board>(initial);
@@ -50,6 +53,7 @@ export function BoardProvider({
 
   useEffect(() => {
     setNow(Date.now());
+    if (!live) return;
     const t = setInterval(() => setNow(Date.now()), 60_000);
     // Live ranking (owner, 2026-09-16): re-read the board every 20 s.
     const poll = setInterval(() => {
@@ -77,7 +81,7 @@ export function BoardProvider({
       clearInterval(t);
       clearInterval(poll);
     };
-  }, []);
+  }, [live]);
 
   return (
     <BoardContext.Provider value={{ board, now }}>
@@ -137,7 +141,9 @@ export default function NominationBoard({ stats }: { stats: Stats }) {
             提名動態
           </h3>
           <p className="bsub">
-            這是提名名單，不是正式投票結果。同一家公司被提名多次，只代表它已被提名。
+            {stats.phase === "pre" || stats.phase === "nominate"
+              ? "這是提名名單，不是正式投票結果。同一家公司被提名多次，只代表它已被提名。"
+              : "提名期間已結束，這份名單已凍結。這是提名名單，不是正式投票結果。"}
           </p>
         </div>
         <div

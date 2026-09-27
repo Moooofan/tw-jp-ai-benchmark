@@ -1,37 +1,21 @@
-import type { Metadata } from "next";
 import HomePhase1 from "@/components/HomePhase1";
-import { isPhaseOne, isVotePhase, phaseOneStats, previewFromQuery, publicStats, reveal } from "@/lib/phase";
-import { loadReasonCorpus, loadSiteData, loadStats, loadVoteBoard } from "@/lib/site-data";
-import { wordCloud } from "@/lib/wordcloud";
-
-/**
- * Phase 2 carries the document's own question (spec v8 §4). Every other phase
- * returns nothing, so the layout's Phase 1 metadata is left byte-identical.
- */
-export async function generateMetadata({
-  searchParams,
-}: {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
-}): Promise<Metadata> {
-  const sp = searchParams ? await searchParams : undefined;
-  const loaded = await loadStats();
-  const phase = previewFromQuery(sp) ?? loaded.phase;
-  if (!isVotePhase(phase)) return {};
-  const title =
-    "如果你準備進入日本市場，哪一家台灣企業的做法最值得借鏡？｜Taiwan → Japan 2026";
-  const description =
-    "無論是剛起步的新創、平台型企業、上市櫃公司，或已經成熟的品牌，只要它正在或已經進入日本市場，就可能有值得我們學習的方法。";
-  return {
-    title,
-    description,
-    openGraph: { title, description, type: "website" },
-  };
-}
+import {
+  nominationStats,
+  PHASE_TWO_PATH,
+  phaseTwoOpen,
+  previewFromQuery,
+} from "@/lib/phase";
+import { loadSiteData } from "@/lib/site-data";
 
 // Board refreshes every 5 minutes; the rank snapshot behind it is hourly.
-// The vote-phase word cloud is cached with the page (spec v7b §1.6).
 export const revalidate = 30;
 
+/**
+ * `/` is the Phase One page in every phase (owner, 2026-09-27: 「Phase 1 跟
+ * Phase 2 用不同的網址」). It never renders Phase Two or a "voting closed" page:
+ * after `nominate_close` it shows nominations as ended, and once Phase Two is
+ * public it links to `/phase-two`. Metadata stays the layout's Phase 1 set.
+ */
 export default async function Page({
   searchParams,
 }: {
@@ -40,36 +24,17 @@ export default async function Page({
   const sp = searchParams ? await searchParams : undefined;
   const loaded = await loadSiteData();
   const preview = previewFromQuery(sp);
-  const { posts, finalists, board } = loaded;
   const stats = preview ? { ...loaded.stats, phase: preview } : loaded.stats;
-  if (isPhaseOne(stats.phase)) {
-    return <HomePhase1 stats={phaseOneStats(stats)} board={board} />;
-  }
-  if (isVotePhase(stats.phase)) {
-    // Community Intelligence Page (spec v7b §1, §4).
-    const { default: HomeVote } = await import("@/components/HomeVote");
-    const [board, corpus] = await Promise.all([
-      loadVoteBoard(),
-      loadReasonCorpus(null),
-    ]);
-    return (
-      <HomeVote
-        stats={publicStats(stats)}
-        board={board}
-        cloud={wordCloud(corpus).slice(0, 16)}
-      />
-    );
-  }
-  // Loaded only for results, so the later-phase copy is not part of the
-  // Phase 1 or vote bundles.
-  const { default: SiteClient } = await import("@/components/SiteClient");
-  const { storySlots } = await import("@/components/story");
+  const p2 =
+    (preview && preview !== "pre" && preview !== "nominate") ||
+    phaseTwoOpen(stats)
+      ? PHASE_TWO_PATH
+      : undefined;
   return (
-    <SiteClient
-      stats={stats}
-      posts={posts}
-      finalists={finalists}
-      slots={reveal(stats.phase).story ? storySlots(stats) : undefined}
+    <HomePhase1
+      stats={nominationStats(stats)}
+      board={loaded.board}
+      phaseTwoHref={p2}
     />
   );
 }

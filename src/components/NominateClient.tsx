@@ -474,7 +474,7 @@ export default function NominateClient({
   }
 
   return (
-    <SiteChrome stats={stats} story={chrome}>
+    <SiteChrome stats={stats} story={chrome} track="one">
       <div className="pagehero">
         <div className="wrap">
           <span className="chip">Nominate</span>

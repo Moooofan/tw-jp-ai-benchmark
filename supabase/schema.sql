@@ -6952,3 +6952,45 @@ begin
   end loop;
 end $$;
 -- END v8-demo
+
+-- BEGIN v7q-to800
+-- Owner (2026-09-27 15:07 Taipei): take Phase 1 from 623 to 800 gradually.
+-- 177 rows in 25 batches, 20 minutes apart, 15:10 → 23:10 Taipei (before the
+-- nomination period closes). Same weighted draw as v7p; skipped once written.
+do $$
+declare
+  total int := 177; batches int := 25;
+  b int; k int; d text; per int;
+begin
+  if exists (select 1 from public.nominations where client_id like 'seed-cid-c%') then
+    return;
+  end if;
+  for b in 1 .. batches loop
+    per := (total * b) / batches - (total * (b - 1)) / batches;
+    for k in 1 .. per loop
+      select c.domain into d
+        from public.companies c
+        join (select domain, count(*) n from public.nominations group by 1) x
+          on x.domain = c.domain
+       where c.status <> 'hidden'
+         and c.merged_into is null
+         and coalesce(c.needs_review, false) = false
+       order by power(random(), 1.0 / power(x.n, 0.7)) desc
+       limit 1;
+      if d is not null then
+        insert into public.nominations (domain, client_id, typed_name, created_at)
+        values (d, 'seed-cid-c' || b || '-' || k, null,
+                now() + interval '3 minutes' + ((b - 1) * interval '20 minutes')
+                      + (random() * interval '4 minutes'));
+      end if;
+    end loop;
+  end loop;
+end $$;
+-- END v7q-to800
+
+-- BEGIN v9-launch-time
+-- Execution memo v3.0 (2026-09-27): Phase Two goes live 2026-09-28 12:00 Taipei, not 00:00.
+update public.settings
+   set vote_open = timestamptz '2026-09-28 12:00:00+08'
+ where id = 1 and vote_open is distinct from timestamptz '2026-09-28 12:00:00+08';
+-- END v9-launch-time
