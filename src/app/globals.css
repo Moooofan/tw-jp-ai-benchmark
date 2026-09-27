@@ -1015,3 +1015,6 @@ a.ccard__name:hover{color:var(--brand);text-decoration:underline;text-underline-
 .casecard__go{display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-weight:700;font-size:14px;color:var(--brand)}
 .casenote{margin:18px 0 0;font-size:13px;color:var(--muted)}
 @media (max-width:860px){.casegrid{grid-template-columns:1fr}}
+
+/* v9d 2026-09-27 — explanatory line under the I.Q Lite prize item */
+.p2note{display:block;margin-top:3px;font-size:13px;line-height:1.6;opacity:.82;font-weight:400}

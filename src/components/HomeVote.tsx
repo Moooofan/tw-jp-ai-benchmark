@@ -53,6 +53,11 @@ const OUTCOME_ITEMS: string[] = [
   "公開演示從 ximu 檢驗、分析到 IQ Lite 完成產出的完整過程",
 ];
 
+/** What the Top 3 prize contains (owner wording). Shown under the I.Q Lite item. */
+const IQ_LITE_ITEM = "Top 3 每家獲贈一份價值 US$180 的 I.Q Lite AI 形象資產報告";
+const IQ_LITE_NOTE =
+  "涵蓋品牌與競品的 AI 形象資產現況診斷，優化方向與 90 天行動建議。";
+
 /** 結果限制 (memo §五) + the reason-vote rule. */
 const RESULT_NOTES: string[] = [
   "排序依正式票數即時計算；每則理由累積 10 個有效讚，該企業增加 1 票。倒讚只作為回饋，不扣除票數。",
@@ -211,7 +216,12 @@ export default function HomeVote({
                 </p>
                 <ul className="p2box__list">
                   {OUTCOME_ITEMS.map((r) => (
-                    <li key={r}>{r}</li>
+                    <li key={r}>
+                      {r}
+                      {r === IQ_LITE_ITEM ? (
+                        <small className="p2note">{IQ_LITE_NOTE}</small>
+                      ) : null}
+                    </li>
                   ))}
                 </ul>
                 <a className="p2box__more" href="#outcome">
@@ -305,7 +315,12 @@ export default function HomeVote({
             <Band id="outcome" chip="03 · Outcome" title="投完之後">
               <ul className="rulelist">
                 {OUTCOME_ITEMS.map((r) => (
-                  <li key={r}>{r}。</li>
+                  <li key={r}>
+                    {r}。
+                    {r === IQ_LITE_ITEM ? (
+                      <small className="p2note">{IQ_LITE_NOTE}</small>
+                    ) : null}
+                  </li>
                 ))}
                 <li>後續公開報告、示範影片與橫向市場觀察。</li>
               </ul>
