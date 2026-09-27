@@ -87,6 +87,31 @@ const FAQ: { q: string; a: string }[] = [
   },
 ];
 
+/** IQ Lite proof cases (memo v3.0 §六). Reports are served as-is from public/cases/. */
+const CASES = [
+  {
+    href: "/cases/figure-ai.html",
+    tag: "海外新創",
+    name: "Figure AI",
+    topic: "人形機器人",
+    line: "已進入 AI 比較名單；台灣市場入口仍要靠在地部署證據與夥伴角色補齊。",
+  },
+  {
+    href: "/cases/palo-alto-networks.html",
+    tag: "大型企業",
+    name: "Palo Alto Networks",
+    topic: "Agent 時代資安影響力",
+    line: "在 AI 回答中取得領先可見度，但台灣人類注意力與比較型問題的優先排序尚未同步放大。",
+  },
+  {
+    href: "/cases/junglia.html",
+    tag: "日本市場",
+    name: "JUNGLIA OKINAWA",
+    topic: "台灣旅客的日本樂園選擇",
+    line: "當前機會在於把情境內的 AI 優勢，接上台灣旅客的行程決策。",
+  },
+];
+
 export default function HomeVote({
   stats,
   board,
@@ -286,6 +311,35 @@ export default function HomeVote({
               </ul>
               <p className="para p2outcome__close">
                 這不是抽象的獎勵，而是讓市場實際看到：一個人類的選擇與理由，如何經過檢驗，成為可採取行動的市場判斷與形象資產。
+              </p>
+            </Band>
+
+            <Band id="cases" chip="Proof Cases" title="IQ Lite 報告實例">
+              <p className="para">
+                先看懂 ximu 與 IQ Lite 如何把公開資訊，轉成形象資產判讀與市場決策。
+              </p>
+              <div className="casegrid">
+                {CASES.map((c) => (
+                  <a
+                    key={c.href}
+                    className="casecard"
+                    href={c.href}
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    <span className="casecard__tag">{c.tag}</span>
+                    <strong className="casecard__name">{c.name}</strong>
+                    <span className="casecard__topic">{c.topic}</span>
+                    <span className="casecard__line">{c.line}</span>
+                    <span className="casecard__go">
+                      看完整報告
+                      <Icon icon={ArrowRight} />
+                    </span>
+                  </a>
+                ))}
+              </div>
+              <p className="casenote">
+                資料整理與初步報告由 ximu Agent 完成，並經 Human Analyst Review 校準其決策意義。
               </p>
             </Band>
 

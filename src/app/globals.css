@@ -1003,3 +1003,15 @@ a.ccard__name:hover{color:var(--brand);text-decoration:underline;text-underline-
 @media (max-width:560px){.cobrand__one img{height:21px}}
 .p2hero__meta span{white-space:nowrap}
 @media (max-width:420px){.p2hero h1{font-size:24px}}
+
+/* v9b 2026-09-27 — IQ Lite proof cases */
+.casegrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:22px}
+.casecard{display:flex;flex-direction:column;gap:8px;background:var(--white);border:1px solid var(--line);border-top:4px solid var(--brand);box-shadow:6px 6px 0 var(--shadow);padding:22px 24px 20px;color:var(--text);text-decoration:none;transition:transform .15s ease,box-shadow .15s ease}
+.casecard:hover{transform:translate(-2px,-2px);box-shadow:8px 8px 0 var(--shadow)}
+.casecard__tag{align-self:flex-start;font-size:12px;font-weight:700;color:var(--brand);background:var(--ground);padding:2px 8px}
+.casecard__name{font-size:22px;font-weight:900;color:var(--ink);line-height:1.3}
+.casecard__topic{font-size:14px;font-weight:700;color:var(--secondary)}
+.casecard__line{font-size:15px;line-height:1.8;flex:1}
+.casecard__go{display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-weight:700;font-size:14px;color:var(--brand)}
+.casenote{margin:18px 0 0;font-size:13px;color:var(--muted)}
+@media (max-width:860px){.casegrid{grid-template-columns:1fr}}
