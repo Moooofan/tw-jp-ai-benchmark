@@ -41,14 +41,12 @@ export const STRATEGY_LINE =
 export const VM_SLOGAN = "Seen and Trusted by Humans & AI";
 export const XIMU_SLOGAN = "See What AI See";
 
-/** VM | VOCAL MIDDLE × ximu logos (+ slogans unless `bare`). */
+/** VM | VOCAL MIDDLE × ximu logos. */
 export function CoBrand({
   ximuUrl,
-  bare = false,
   size = "md",
 }: {
   ximuUrl?: string;
-  bare?: boolean;
   size?: "md" | "lg";
 }) {
   const h = size === "lg" ? 34 : 26;
@@ -71,7 +69,6 @@ export function CoBrand({
           height={h}
           unoptimized
         />
-        {bare ? null : <small>{VM_SLOGAN}</small>}
       </span>
       <span className="cobrand__x" aria-hidden="true">
         ×
@@ -84,7 +81,6 @@ export function CoBrand({
         ) : (
           ximu
         )}
-        {bare ? null : <small>{XIMU_SLOGAN}</small>}
       </span>
     </span>
   );

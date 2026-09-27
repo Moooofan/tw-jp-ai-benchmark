@@ -6994,3 +6994,39 @@ update public.settings
    set vote_open = timestamptz '2026-09-28 12:00:00+08'
  where id = 1 and vote_open is distinct from timestamptz '2026-09-28 12:00:00+08';
 -- END v9-launch-time
+
+-- BEGIN v9-purge-demo
+-- Phase Two demo data (every row keyed by an @demo.invalid email) is removed at
+-- 2026-09-28 11:30 Taipei, half an hour before voting opens (owner call 2026-09-27).
+create or replace function public.purge_phase2_demo()
+returns json language plpgsql security definer set search_path = public as $$
+declare b int; r int; s int; c int;
+begin
+  delete from public.reason_reactions where email_key like '%@demo.invalid';
+  get diagnostics r = row_count;
+  delete from public.ballots where email_key like '%@demo.invalid';   -- picks cascade
+  get diagnostics b = row_count;
+  delete from public.candidate_supports where email_key like '%@demo.invalid';
+  get diagnostics s = row_count;
+  -- the four demo 遺珠 go back to plain never-nominated seed companies
+  update public.companies
+     set proposed_at = null, proposed_note = null, pool_entered_at = null, vote_base = 0
+   where proposed_at is not null
+     and not exists (select 1 from public.candidate_supports x where x.domain = companies.domain)
+     and not exists (select 1 from public.nominations n where n.domain = companies.domain);
+  get diagnostics c = row_count;
+  delete from public.leaderboard_snapshots;
+  return json_build_object('ballots', b, 'reactions', r, 'supports', s, 'companies_reset', c);
+end $$;
+revoke all on function public.purge_phase2_demo() from public, anon, authenticated;
+
+create extension if not exists pg_cron;
+
+do $$
+begin
+  perform cron.unschedule(jobid) from cron.job where jobname = 'purge-phase2-demo';
+  -- pg_cron runs in UTC: 03:30 UTC on 28 Sep = 11:30 Taipei.
+  perform cron.schedule('purge-phase2-demo', '30 3 28 9 *',
+    $job$select public.purge_phase2_demo(); select cron.unschedule('purge-phase2-demo');$job$);
+end $$;
+-- END v9-purge-demo
