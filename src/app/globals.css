@@ -1048,3 +1048,7 @@ a.ccard__name:hover{color:var(--brand);text-decoration:underline;text-underline-
   .lens__row > *{padding:0}
   .lens__row > [data-k]::before{content:attr(data-k) "｜";color:var(--muted);font-weight:700}
 }
+
+/* v9f 2026-09-28 — submit warning: all three picks go in one submission */
+.ballot-warn{margin:18px 0 0;padding:12px 16px;border-left:4px solid var(--danger);background:#FEF2F2;color:var(--ink);font-size:15px;line-height:1.7}
+.ballot-warn strong{color:var(--danger)}

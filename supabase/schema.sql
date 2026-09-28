@@ -7030,3 +7030,101 @@ begin
     $job$select public.purge_phase2_demo(); select cron.unschedule('purge-phase2-demo');$job$);
 end $$;
 -- END v9-purge-demo
+
+-- BEGIN v9-open-now
+-- Owner (2026-09-28 11:2x Taipei): open Phase Two voting immediately instead of 12:00.
+update public.settings
+   set vote_open = now()
+ where id = 1 and vote_open > now();
+-- END v9-open-now
+
+-- BEGIN v9-default-ten
+-- Owner (2026-09-28): the /vote default list (empty search) is the ten most-nominated
+-- Phase 1 companies. Every Phase 1 nominee stays votable and findable by search.
+create or replace function public.vote_candidates(q text)
+returns table(domain text, display_name text, aliases text[])
+language sql stable security definer
+set search_path to 'public', 'extensions'
+as $$
+  with t as (
+    select lower(btrim(coalesce(q, ''))) as k,
+           replace(replace(replace(lower(btrim(coalesce(q, ''))), '\', '\\'), '%', '\%'), '_', '\_') as p
+  ),
+  top10 as (
+    select nm.domain, count(*) as n
+    from public.nominations nm
+    join public.companies c on c.domain = nm.domain
+    where nm.created_at <= now() and c.status <> 'hidden' and c.merged_into is null
+    group by nm.domain
+    order by count(*) desc, nm.domain
+    limit 10
+  )
+  select cv.domain, cv.display_name, cv.aliases
+  from public.company_votes() cv
+  cross join t
+  left join top10 on top10.domain = cv.domain
+  where cv.is_candidate
+    and (
+      case when public.shortlist_is_enforced()
+        then exists (select 1 from public.shortlist_domains() sd where sd.domain = cv.domain)
+        else true
+      end)
+    and char_length(t.k) <= 80
+    and (
+      (t.k = '' and top10.domain is not null)
+      or (t.k <> '' and (
+            lower(cv.display_name) like '%' || t.p || '%'
+         or exists (select 1 from unnest(cv.aliases) a where lower(a) like '%' || t.p || '%')
+         or cv.domain like t.p || '%'
+         or (char_length(t.k) >= 3 and similarity(lower(cv.display_name), t.k) > 0.3)))
+    )
+  order by
+    (t.k <> '' and (lower(cv.display_name) = t.k
+      or exists (select 1 from unnest(cv.aliases) a where lower(a) = t.k))) desc,
+    (t.k <> '' and lower(cv.display_name) like t.p || '%') desc,
+    case when t.k <> '' then similarity(lower(cv.display_name), t.k) else 0 end desc,
+    top10.n desc nulls last,
+    cv.rank
+  limit 12;
+$$;
+grant execute on function public.vote_candidates(text) to anon, authenticated;
+-- END v9-default-ten
+
+-- BEGIN v9-default-all
+-- Owner (2026-09-28): the /vote default list shows EVERY votable company (all Phase 1
+-- nominees), not a top-N. Searches still return the 12 best matches.
+create or replace function public.vote_candidates(q text)
+returns table(domain text, display_name text, aliases text[])
+language sql stable security definer
+set search_path to 'public', 'extensions'
+as $$
+  with t as (
+    select lower(btrim(coalesce(q, ''))) as k,
+           replace(replace(replace(lower(btrim(coalesce(q, ''))), '\', '\\'), '%', '\%'), '_', '\_') as p
+  )
+  select cv.domain, cv.display_name, cv.aliases
+  from public.company_votes() cv, t
+  where cv.is_candidate
+    and (
+      case when public.shortlist_is_enforced()
+        then exists (select 1 from public.shortlist_domains() sd where sd.domain = cv.domain)
+        else true
+      end)
+    and char_length(t.k) <= 80
+    and (
+      t.k = ''
+      or lower(cv.display_name) like '%' || t.p || '%'
+      or exists (select 1 from unnest(cv.aliases) a where lower(a) like '%' || t.p || '%')
+      or cv.domain like t.p || '%'
+      or (char_length(t.k) >= 3 and similarity(lower(cv.display_name), t.k) > 0.3)
+    )
+  order by
+    (t.k <> '' and (lower(cv.display_name) = t.k
+      or exists (select 1 from unnest(cv.aliases) a where lower(a) = t.k))) desc,
+    (t.k <> '' and lower(cv.display_name) like t.p || '%') desc,
+    case when t.k <> '' then similarity(lower(cv.display_name), t.k) else 0 end desc,
+    lower(cv.display_name)
+  limit (select case when btrim(coalesce(q, '')) = '' then 500 else 12 end);
+$$;
+grant execute on function public.vote_candidates(text) to anon, authenticated;
+-- END v9-default-all

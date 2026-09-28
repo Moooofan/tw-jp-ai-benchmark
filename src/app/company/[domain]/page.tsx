@@ -55,10 +55,7 @@ export default async function Page({
   const d = domainOf(domain);
   const detail = await loadCompanyDetail(d);
   if (!detail) notFound();
-  // Anti-herding (2026-09-28): while voting is open, reasons are fetched in
-  // the browser after this visitor has voted (CompanyCommunity).
-  const corpus =
-    stats.phase === "vote" ? [] : await loadReasonCorpus(detail.domain);
+  const corpus = await loadReasonCorpus(detail.domain);
   return (
     <CompanyPage
       stats={publicStats(stats)}

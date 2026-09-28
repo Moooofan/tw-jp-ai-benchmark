@@ -428,6 +428,11 @@ export default function BallotClient({
 
         {err ? <p className="err">{err}</p> : null}
 
+        <p className="ballot-warn" role="note">
+          <strong>請注意：</strong>
+          每個 email 每天只能送出一次。想投的三家請一次選完、寫好理由再送出，送出後當天無法再追加。
+        </p>
+
         <div className="after">
           <button
             type="submit"

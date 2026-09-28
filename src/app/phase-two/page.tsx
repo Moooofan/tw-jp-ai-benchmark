@@ -48,10 +48,10 @@ export default async function PhaseTwoPage({
   const { stats, open } = phaseTwoGate(loaded.stats, sp);
   if (!open) notFound();
   if (isVotePhase(stats.phase)) {
-    // Anti-herding (2026-09-28): while voting is open, only the site totals
-    // leave the server; the ranking, reasons and keywords are fetched in the
-    // browser after this visitor has voted today (BoardProvider).
-    const lockable = stats.phase === "vote";
+    // The ranking and reasons are public before voting too (owner call
+    // 2026-09-28: reason posts link here and ask readers to like a reason).
+    // The vote-first gate in VoteGate stays available but is switched off.
+    const lockable = false;
     const board = await loadVoteBoard();
     const corpus = lockable ? [] : await loadReasonCorpus(null);
     return (

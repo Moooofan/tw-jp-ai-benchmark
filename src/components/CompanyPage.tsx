@@ -24,7 +24,8 @@ export default function CompanyPage({
   cloud: CloudWord[];
 }) {
   const open = stats.phase === "vote";
-  const lockable = open;
+  // Reasons are public before voting (owner call 2026-09-28).
+  const lockable = false;
   const cta = open ? (
     <Link
       className="btn btn--red"
