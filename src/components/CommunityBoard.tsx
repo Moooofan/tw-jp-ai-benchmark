@@ -19,33 +19,102 @@ import {
 import { dateRange } from "@/lib/format";
 import { getBrowserClient } from "@/lib/supabase-browser";
 import { EMPTY_VOTE_BOARD, type Movement, type VoteBoard } from "@/lib/types";
+import { wordCloud, type CloudWord } from "@/lib/wordcloud";
 import Favicon from "./Favicon";
 import Icon from "./Icon";
+import KeywordStrip from "./KeywordStrip";
 import { ReasonCard } from "./Reactions";
+import { LockedNote, useVotedToday, type GateState } from "./VoteGate";
 
 const REFRESH_MS = 60_000;
 
-const BoardCtx = createContext<VoteBoard>(EMPTY_VOTE_BOARD);
+type BoardState = {
+  board: VoteBoard;
+  cloud: CloudWord[];
+  gate: GateState;
+  voteHref: string;
+};
 
-/** Holds `vote_board()` for the page and refreshes it every 60 s. */
+const BoardCtx = createContext<BoardState>({
+  board: EMPTY_VOTE_BOARD,
+  cloud: [],
+  gate: "unlocked",
+  voteHref: "/vote",
+});
+
+const useBoard = () => useContext(BoardCtx).board;
+
+/** Word cloud in the browser; never breaks the page (old Intl builds). */
+function safeCloud(corpus: string[]): CloudWord[] {
+  try {
+    return wordCloud(corpus).slice(0, 16);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Holds `vote_board()` for the page and refreshes it every 60 s.
+ * Anti-herding (2026-09-28): with `lockable`, the server passes totals only;
+ * the full board and the keyword cloud are fetched here once this browser
+ * has voted today ({@link useVotedToday}).
+ */
 export function BoardProvider({
   initial,
+  initialCloud = [],
+  lockable = false,
+  voteHref = "/vote",
   children,
 }: {
   initial: VoteBoard;
+  initialCloud?: CloudWord[];
+  lockable?: boolean;
+  voteHref?: string;
   children: ReactNode;
 }) {
+  const gate = useVotedToday(lockable);
   const [board, setBoard] = useState(initial);
+  const [cloud, setCloud] = useState(initialCloud);
   useEffect(() => {
+    if (gate !== "unlocked") return;
     const supabase = getBrowserClient();
-    const t = setInterval(async () => {
-      if (document.visibilityState !== "visible") return;
+    let live = true;
+    const loadBoard = async () => {
       const { data } = await supabase.rpc("vote_board");
-      if (data) setBoard({ ...EMPTY_VOTE_BOARD, ...(data as VoteBoard) });
+      if (live && data) setBoard({ ...EMPTY_VOTE_BOARD, ...(data as VoteBoard) });
+    };
+    if (lockable) {
+      void loadBoard();
+      void supabase.rpc("reason_corpus", { p_domain: null }).then(({ data }) => {
+        if (live && data) setCloud(safeCloud(data as string[]));
+      });
+    }
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") void loadBoard();
     }, REFRESH_MS);
-    return () => clearInterval(t);
-  }, []);
-  return <BoardCtx.Provider value={board}>{children}</BoardCtx.Provider>;
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [gate, lockable]);
+  return (
+    <BoardCtx.Provider value={{ board, cloud, gate, voteHref }}>
+      {children}
+    </BoardCtx.Provider>
+  );
+}
+
+/** Renders its children only once the community view is unlocked. */
+export function CommunityGate({ children }: { children: ReactNode }) {
+  const { gate, voteHref } = useContext(BoardCtx);
+  if (gate !== "unlocked") return <LockedNote voteHref={voteHref} />;
+  return <>{children}</>;
+}
+
+/** 大家怎麼看日本市場 keyword row, from the (client-fetched) cloud. */
+export function CommunityKeywords() {
+  const { cloud } = useContext(BoardCtx);
+  return <KeywordStrip words={cloud} />;
 }
 
 const nf = new Intl.NumberFormat("en-US");
@@ -60,7 +129,7 @@ export function VoteStatStrip({
   voteClose: string | null;
   closed: boolean;
 }) {
-  const board = useContext(BoardCtx);
+  const board = useBoard();
   return (
     <div className="sched" aria-label="投票概況">
       <div className={closed ? "sc ended" : "sc now"}>
@@ -104,7 +173,7 @@ function MovementMark({ m }: { m: Movement }) {
  * signal, not a final ranking. Movement marks stay: they describe change.
  */
 export function ResultBoard() {
-  const { leaderboard } = useContext(BoardCtx);
+  const { leaderboard } = useBoard();
   if (leaderboard.length === 0) {
     return <p className="empty">正式投票開始後，這裡會出現目前的社群判斷。</p>;
   }
@@ -154,7 +223,7 @@ export function ResultBoard() {
 
 /** 02 熱門理由: 熱門 / 最新 tabs of reason cards. */
 export function ReasonTabs() {
-  const board = useContext(BoardCtx);
+  const board = useBoard();
   const [tab, setTab] = useState<"hot" | "latest">("hot");
   const list = tab === "hot" ? board.hot_reasons : board.latest_reasons;
   return (
@@ -205,7 +274,7 @@ export function ReasonTabs() {
  * reasons, and how many ballots and reasons arrived each day.
  */
 export function ResonanceAndTrend() {
-  const board = useContext(BoardCtx);
+  const board = useBoard();
   const likes = board.total_likes;
   const dislikes = board.total_dislikes;
   const all = likes + dislikes;

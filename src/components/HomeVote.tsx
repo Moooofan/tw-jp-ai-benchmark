@@ -6,6 +6,8 @@ import type { Stats, VoteBoard } from "@/lib/types";
 import Band from "./Band";
 import {
   BoardProvider,
+  CommunityGate,
+  CommunityKeywords,
   ReasonTabs,
   ResonanceAndTrend,
   ResultBoard,
@@ -13,7 +15,6 @@ import {
 } from "./CommunityBoard";
 import type { CloudWord } from "@/lib/wordcloud";
 import Icon from "./Icon";
-import KeywordStrip from "./KeywordStrip";
 import { DISLIKE_NOTE, ReactionProvider } from "./Reactions";
 import ShareRow from "./ShareRow";
 import SiteChrome, {
@@ -117,14 +118,48 @@ const CASES = [
   },
 ];
 
+/** Reviewer's Human / AI only / Humans + AI comparison (2026-09-28). */
+const LENSES = [
+  {
+    who: "Human",
+    sees: "客戶回饋、在地夥伴、通路、團隊、文化、媒體、營收與實際經驗",
+    misses: "難以大規模比較，也容易被熟悉度、聲量與故事影響",
+  },
+  {
+    who: "AI only",
+    sees: "公開資訊、可引用來源、比較關係、Query、推薦語境與數位證據",
+    misses: "看不到未公開的現場經驗、組織能力與真實商業脈絡",
+  },
+  {
+    who: "Humans + AI",
+    sees: "把人的市場經驗，與 AI 能讀取、引用、比較的證據交叉檢驗",
+    misses: "找出「市場其實知道，但 AI 不知道」以及「AI 已形成判斷，但企業沒有治理」的空隙",
+  },
+];
+
+const LOGIC_STEPS = [
+  "提名，蒐集人類首先想到誰。",
+  "投票與理由，找出人類為什麼相信。",
+  "按讚與討論，看哪些理由形成市場共識。",
+  "ximu 檢驗 AI 是否看見同一件事。",
+  "IQ Lite 把兩者的落差，轉成下一步市場決策。",
+];
+
 export default function HomeVote({
   stats,
   board,
   cloud,
+  lockable,
+  voteHref,
 }: {
   stats: Stats;
+  /** Totals only while `lockable` (anti-herding); the full board otherwise. */
   board: VoteBoard;
   cloud: CloudWord[];
+  /** Voting is open: the community view waits until this browser has voted. */
+  lockable: boolean;
+  /** `/vote`, with the owner preview params when present. */
+  voteHref: string;
 }) {
   const closed = stats.phase === "closed";
   const range =
@@ -132,8 +167,13 @@ export default function HomeVote({
       ? `${monthDay(stats.vote_open)}–${monthDay(stats.vote_close)}`
       : "9/28–10/06";
   return (
-    <SiteChrome stats={stats} home track="two">
-      <BoardProvider initial={board}>
+    <SiteChrome stats={stats} home track="two" voteHref={voteHref}>
+      <BoardProvider
+        initial={board}
+        initialCloud={cloud}
+        lockable={lockable}
+        voteHref={voteHref}
+      >
         <ReactionProvider open={!closed}>
           <div className="hero p2hero">
             <div className="wrap wrap--wide">
@@ -157,7 +197,7 @@ export default function HomeVote({
                     <Icon icon={ArrowRight} />
                   </a>
                 ) : (
-                  <Link className="btn p2hero__cta" href="/vote">
+                  <Link className="btn p2hero__cta" href={voteHref}>
                     開始投票
                     <Icon icon={ArrowRight} />
                   </Link>
@@ -176,6 +216,9 @@ export default function HomeVote({
           </div>
 
           <div className="wrap wrap--wide">
+            <p className="p2plain">
+              你投的不是一家公司，而是一個你認為值得被複用的赴日方法。
+            </p>
             <div className="p2boxes">
               <section className="p2box" aria-labelledby="box-why">
                 <p className="p2box__k">01 · WHY</p>
@@ -257,6 +300,35 @@ export default function HomeVote({
               </p>
             </Band>
 
+            <Band id="gap" chip="Humans + AI" title="真正應該說清楚的 Humans + AI 空隙">
+              <div className="lens">
+                <div className="lens__head" aria-hidden="true">
+                  <span>視角</span>
+                  <span>進入新市場時通常看什麼</span>
+                  <span>容易忽略什麼</span>
+                </div>
+                {LENSES.map((l) => (
+                  <div
+                    className={l.who === "Humans + AI" ? "lens__row lens__row--key" : "lens__row"}
+                    key={l.who}
+                  >
+                    <strong className="lens__who">{l.who}</strong>
+                    <span data-k="通常看什麼">{l.sees}</span>
+                    <span data-k="容易忽略什麼">{l.misses}</span>
+                  </div>
+                ))}
+              </div>
+              <h3 className="subh">因此這次活動的完整邏輯</h3>
+              <ol className="logic">
+                {LOGIC_STEPS.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ol>
+              <p className="para">
+                票選只是入口，真正收集的是「決策如何形成」。
+              </p>
+            </Band>
+
             <Band id="how" chip="02 · How" title="怎麼投">
               <ul className="rulelist" id="rules">
                 {HOW_RULES.map((r) => (
@@ -273,7 +345,7 @@ export default function HomeVote({
               ) : null}
               {closed ? null : (
                 <div className="howcta">
-                  <Link className="btn btn--red" href="/vote">
+                  <Link className="btn btn--red" href={voteHref}>
                     開始投票
                     <Icon icon={ArrowRight} />
                   </Link>
@@ -282,7 +354,9 @@ export default function HomeVote({
             </Band>
 
             <Band id="results" chip="Community Signal" title="目前的社群判斷">
-              <ResultBoard />
+              <CommunityGate>
+                <ResultBoard />
+              </CommunityGate>
               {RESULT_NOTES.map((n) => (
                 <p className="note" key={n}>
                   {n}
@@ -307,9 +381,11 @@ export default function HomeVote({
                 投票之外，你也可以對其他人的理由按讚。每則理由累積 10 個有效讚，該企業增加 1 票；20 個讚增加 2 票，以此類推。
               </p>
               <p className="note">{DISLIKE_NOTE}</p>
-              <ReasonTabs />
-              <KeywordStrip words={cloud} />
-              <ResonanceAndTrend />
+              <CommunityGate>
+                <ReasonTabs />
+                <CommunityKeywords />
+                <ResonanceAndTrend />
+              </CommunityGate>
             </Band>
 
             <Band id="outcome" chip="03 · Outcome" title="投完之後">
@@ -373,7 +449,7 @@ export default function HomeVote({
                       <Icon icon={ArrowRight} />
                     </a>
                   ) : (
-                    <Link className="btn btn--red" href="/vote">
+                    <Link className="btn btn--red" href={voteHref}>
                       開始投票
                       <Icon icon={ArrowRight} />
                     </Link>

@@ -126,7 +126,16 @@ export default function CompanyPicker({
         void (async () => {
           const { data } = await supabase.rpc("vote_candidates", { q });
           if (!live) return;
-          setMatches((data as CompanyMatch[] | null) ?? []);
+          const rows = (data as CompanyMatch[] | null) ?? [];
+          // Anti-herding (2026-09-28): the empty query returns the pool by
+          // votes; show it in a neutral name order so it names no leaders.
+          setMatches(
+            q
+              ? rows
+              : [...rows].sort((a, b) =>
+                  a.display_name.localeCompare(b.display_name, "zh-Hant"),
+                ),
+          );
           setSearched(name.trim());
         })();
         if (allowNew && q.length >= NAME_MIN) {
@@ -325,7 +334,7 @@ export default function CompanyPicker({
       </div>
 
       {matches.length > 0 ? (
-        <ul className="cands" aria-label={name.trim() ? "搜尋結果" : "熱門候選"}>
+        <ul className="cands" aria-label={name.trim() ? "搜尋結果" : "候選企業"}>
           {matches.map((c) => {
             const on = pickedDomains.includes(c.domain);
             return (

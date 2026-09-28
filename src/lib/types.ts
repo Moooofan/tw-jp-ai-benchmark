@@ -287,6 +287,8 @@ export type CompanyDetail = {
   domain: string;
   display_name: string;
   aliases: string[];
+  /** 分類 tag, when the RPC build returns it. */
+  sector?: string | null;
   rank: number;
   votes: number;
   reasons_count: number;

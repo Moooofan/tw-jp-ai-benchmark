@@ -133,6 +133,7 @@ export default function SiteChrome({
   story,
   track,
   phaseTwoHref,
+  voteHref = "/vote",
   children,
 }: {
   story?: ChromeStory;
@@ -143,12 +144,14 @@ export default function SiteChrome({
   track?: "one" | "two";
   /** Track `one` after nominations close: where Phase Two lives, once public. */
   phaseTwoHref?: string;
+  /** Track `two`: the 開始投票 target (keeps the owner preview params). */
+  voteHref?: string;
   children: ReactNode;
 }) {
   const t = track ?? (isPhaseOne(stats.phase) ? "one" : "two");
   if (t === "two" && isVotePhase(stats.phase)) {
     return (
-      <PhaseTwoChrome stats={stats} home={home}>
+      <PhaseTwoChrome stats={stats} home={home} voteHref={voteHref}>
         {children}
       </PhaseTwoChrome>
     );
@@ -260,10 +263,12 @@ export default function SiteChrome({
 function PhaseTwoChrome({
   stats,
   home,
+  voteHref,
   children,
 }: {
   stats: Stats;
   home: boolean;
+  voteHref: string;
   children: ReactNode;
 }) {
   const p2 = PHASE_TWO_PATH;
@@ -291,7 +296,7 @@ function PhaseTwoChrome({
                 目前結果
               </Link>
             ) : (
-              <Link className="btn btn--red btn--sm" href="/vote">
+              <Link className="btn btn--red btn--sm" href={voteHref}>
                 開始投票
               </Link>
             )}

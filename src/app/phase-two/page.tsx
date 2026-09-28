@@ -9,6 +9,8 @@ import {
   loadStats,
   loadVoteBoard,
 } from "@/lib/site-data";
+import { EMPTY_VOTE_BOARD } from "@/lib/types";
+import { voteHrefFrom } from "@/lib/voted";
 import { wordCloud } from "@/lib/wordcloud";
 
 type Search = Promise<Record<string, string | string[] | undefined>>;
@@ -46,15 +48,27 @@ export default async function PhaseTwoPage({
   const { stats, open } = phaseTwoGate(loaded.stats, sp);
   if (!open) notFound();
   if (isVotePhase(stats.phase)) {
-    const [board, corpus] = await Promise.all([
-      loadVoteBoard(),
-      loadReasonCorpus(null),
-    ]);
+    // Anti-herding (2026-09-28): while voting is open, only the site totals
+    // leave the server; the ranking, reasons and keywords are fetched in the
+    // browser after this visitor has voted today (BoardProvider).
+    const lockable = stats.phase === "vote";
+    const board = await loadVoteBoard();
+    const corpus = lockable ? [] : await loadReasonCorpus(null);
     return (
       <HomeVote
         stats={publicStats(stats)}
-        board={board}
+        board={
+          lockable
+            ? {
+                ...EMPTY_VOTE_BOARD,
+                total_votes: board.total_votes,
+                total_reasons: board.total_reasons,
+              }
+            : board
+        }
         cloud={wordCloud(corpus).slice(0, 16)}
+        lockable={lockable}
+        voteHref={voteHrefFrom(sp)}
       />
     );
   }

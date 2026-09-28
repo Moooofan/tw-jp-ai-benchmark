@@ -13,6 +13,7 @@ import {
 import { dateRange, monthDay } from "@/lib/format";
 import { errText, getBrowserClient } from "@/lib/supabase-browser";
 import { clientId } from "@/lib/client-id";
+import { markVotedToday } from "@/lib/voted";
 import type { MyVoteState, Stats } from "@/lib/types";
 import CompanyPicker, { type Picked } from "./CompanyPicker";
 import Favicon from "./Favicon";
@@ -77,8 +78,9 @@ function Countdown() {
 }
 
 /**
- * `/vote` in vote / closed (spec v7b §2): email -> up to three companies,
- * one reason each -> cast_ballot -> today's ballot, share, come back tomorrow.
+ * `/vote` in vote / closed (spec v7b §2; order changed 2026-09-28): up to
+ * three companies, one reason each -> email -> my_vote_state -> cast_ballot
+ * -> today's picks, share, come back tomorrow.
  */
 export default function BallotClient({
   stats,
@@ -90,7 +92,6 @@ export default function BallotClient({
 }) {
   const supabase = getBrowserClient();
   const [email, setEmail] = useState("");
-  const [emailOk, setEmailOk] = useState(false);
   const [checking, setChecking] = useState(false);
   const [done, setDone] = useState<DonePick[] | null>(null);
   /** True when today's ballot was already used (已達每日上限). */
@@ -98,7 +99,6 @@ export default function BallotClient({
   const [slots, setSlots] = useState<Slot[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const checkedFor = useRef("");
   const picked = useRef(false);
 
   const open = stats.phase === "vote";
@@ -134,37 +134,6 @@ export default function BallotClient({
     });
   }, [open, pick, supabase]);
 
-  async function checkEmail(): Promise<boolean> {
-    const v = email.trim();
-    if (!EMAIL_RE.test(v)) {
-      setErr("請確認 Email 格式。");
-      setEmailOk(false);
-      return false;
-    }
-    setErr("");
-    writeSavedEmail(v);
-    if (checkedFor.current === v.toLowerCase()) {
-      setEmailOk(true);
-      return true;
-    }
-    setChecking(true);
-    const { data, error } = await supabase.rpc("my_vote_state", { p_email: v });
-    setChecking(false);
-    if (error) {
-      setErr(errText(error));
-      return false;
-    }
-    checkedFor.current = v.toLowerCase();
-    const state = data as MyVoteState;
-    if (state.voted_today) {
-      setLimit(true);
-      setDone(state.today);
-      return false;
-    }
-    setEmailOk(true);
-    return true;
-  }
-
   function addPick(c: Picked) {
     setErr("");
     const key = c.domain || `typed:${c.display_name.toLowerCase()}`;
@@ -187,9 +156,14 @@ export default function BallotClient({
     ]);
   }
 
+  /**
+   * Picks and reasons first, email last (2026-09-28). On submit the email is
+   * checked with my_vote_state before cast_ballot; an email that already
+   * voted today gets the 已達每日上限 state, and the typed picks stay in
+   * `slots` so nothing is lost.
+   */
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!(await checkEmail())) return;
     if (slots.length === 0) {
       setErr("請至少選擇 1 家公司。");
       return;
@@ -201,8 +175,31 @@ export default function BallotClient({
       setErr("每家公司的理由需要 10–50 個字。");
       return;
     }
-    setBusy(true);
+    const v = email.trim();
+    if (!EMAIL_RE.test(v)) {
+      setErr("請確認 Email 格式。");
+      return;
+    }
     setErr("");
+    writeSavedEmail(v);
+    setChecking(true);
+    const { data, error: stateErr } = await supabase.rpc("my_vote_state", {
+      p_email: v,
+    });
+    setChecking(false);
+    if (stateErr) {
+      setErr(errText(stateErr));
+      return;
+    }
+    const state = data as MyVoteState;
+    if (state.voted_today) {
+      markVotedToday();
+      setLimit(true);
+      setDone(state.today);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    setBusy(true);
     try {
       await ensureAnonSession();
     } catch (e2) {
@@ -217,7 +214,7 @@ export default function BallotClient({
       reason: s.reason.trim().replace(/\s+/g, " "),
     }));
     const { error } = await supabase.rpc("cast_ballot", {
-      p_email: email.trim(),
+      p_email: v,
       p_picks: picks,
       p_client_id: clientId(),
     });
@@ -226,6 +223,7 @@ export default function BallotClient({
       setErr(errText(error));
       return;
     }
+    markVotedToday();
     setDone(
       slots.map((s, i) => ({
         domain: s.domain,
@@ -287,6 +285,29 @@ export default function BallotClient({
             </li>
           ))}
         </ol>
+        {limit && slots.length > 0 ? (
+          <div className="drafts">
+            <p className="fine">你剛才寫下的理由沒有送出，仍保留在這裡：</p>
+            <ul>
+              {slots.map((s) => (
+                <li key={slotKey(s)}>
+                  <b>{s.display_name}</b>
+                  {s.reason ? <span>{s.reason}</span> : null}
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => {
+                setDone(null);
+                setLimit(false);
+              }}
+            >
+              回到我的選擇
+            </button>
+          </div>
+        ) : null}
         <Countdown />
         <div className="after">
           <Link className="btn btn--red" href="/phase-two#results">
@@ -309,47 +330,9 @@ export default function BallotClient({
       <form className="flow ballotform" noValidate onSubmit={submit}>
         <div className="step">
           <span className="step__k">STEP A</span>
-          <div className="f">
-            <label htmlFor="ballot-email">
-              <Icon icon={Mail} />
-              Email
-            </label>
-            <div className="inline">
-              <input
-                id="ballot-email"
-                type="email"
-                autoComplete="email"
-                inputMode="email"
-                placeholder="name@company.com"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  setEmailOk(false);
-                }}
-                onBlur={() => {
-                  if (email.trim()) void checkEmail();
-                }}
-              />
-              {!emailOk ? (
-                <button
-                  type="button"
-                  className="btn btn--brand"
-                  disabled={checking}
-                  onClick={() => void checkEmail()}
-                >
-                  {checking ? "確認中…" : "繼續"}
-                  <Icon icon={ArrowRight} />
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        <div className={emailOk ? "step" : "step step--off"}>
-          <span className="step__k">STEP B</span>
           <CompanyPicker
             onPick={addPick}
-            disabled={!emailOk || slots.length >= MAX_PICKS}
+            disabled={slots.length >= MAX_PICKS}
             pickedDomains={slots.map((s) => s.domain).filter(Boolean)}
             allowNew={false}
           />
@@ -421,15 +404,37 @@ export default function BallotClient({
           </ol>
         </div>
 
+        <div className="step">
+          <span className="step__k">STEP B</span>
+          <div className="f">
+            <label htmlFor="ballot-email">
+              <Icon icon={Mail} />
+              Email
+            </label>
+            <input
+              id="ballot-email"
+              type="email"
+              autoComplete="email"
+              inputMode="email"
+              placeholder="name@company.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <p className="fine">
+              Email 不公開，只用來確認每個 email 每天最多投給 3 家企業。
+            </p>
+          </div>
+        </div>
+
         {err ? <p className="err">{err}</p> : null}
 
         <div className="after">
           <button
             type="submit"
             className="btn btn--red"
-            disabled={busy || !emailOk || slots.length === 0}
+            disabled={busy || checking || slots.length === 0}
           >
-            {busy ? "送出中…" : "送出投票"}
+            {checking ? "確認中…" : busy ? "送出中…" : "送出投票"}
             <Icon icon={ArrowRight} />
           </button>
         </div>

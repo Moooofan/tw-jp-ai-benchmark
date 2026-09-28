@@ -1018,3 +1018,33 @@ a.ccard__name:hover{color:var(--brand);text-decoration:underline;text-underline-
 
 /* v9d 2026-09-27 — explanatory line under the IQ Lite prize item */
 .p2note{display:block;margin-top:3px;font-size:13px;line-height:1.6;opacity:.82;font-weight:400}
+
+/* Anti-herding lock (2026-09-28): shown where the community view appears after voting. */
+.lockbox{background:var(--white);border-left:4px solid var(--gold-soft);padding:22px 24px;display:flex;flex-wrap:wrap;gap:14px 24px;align-items:center;justify-content:space-between}
+.lockbox p{margin:0;color:var(--muted);font-size:16px;line-height:1.8;flex:1 1 260px;min-width:0}
+/* Unsent picks kept on the 已達每日上限 state. */
+.drafts{margin:18px 0 6px;padding:16px 18px;background:var(--ground);border:1px solid var(--line)}
+.drafts ul{list-style:none;margin:8px 0 14px;padding:0}
+.drafts li{display:flex;flex-wrap:wrap;gap:4px 10px;padding:6px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.drafts li b{color:var(--ink)}
+.drafts li span{color:var(--text)}
+
+/* v9e 2026-09-28 — plain-language line, Humans + AI gap table, five-step logic */
+.p2plain{margin:22px 0 0;font-size:18px;font-weight:700;color:var(--ink);line-height:1.6}
+.lens{margin-top:22px;border:1px solid var(--line);background:var(--white);box-shadow:6px 6px 0 var(--shadow)}
+.lens__head,.lens__row{display:grid;grid-template-columns:1fr 2.4fr 2.4fr;align-items:start}
+.lens__head{background:var(--brand);color:#fff;font-weight:700;font-size:14px}
+.lens__head span,.lens__row > *{padding:16px 18px}
+.lens__row{font-size:15px;line-height:1.8;color:var(--text);border-top:1px solid var(--line)}
+.lens__row--key{background:var(--ground)}
+.lens__who{font-weight:800;color:var(--ink)}
+.lens__row--key .lens__who{color:var(--brand)}
+.logic{margin:10px 0 18px;padding-left:1.5em;font-size:16px;line-height:2;color:var(--ink)}
+.logic li::marker{font-family:var(--cond);font-weight:800;color:var(--brand)}
+@media (max-width:860px){
+  .p2plain{font-size:16px}
+  .lens__head{display:none}
+  .lens__row{grid-template-columns:1fr;padding:14px 16px;gap:6px}
+  .lens__row > *{padding:0}
+  .lens__row > [data-k]::before{content:attr(data-k) "｜";color:var(--muted);font-weight:700}
+}
