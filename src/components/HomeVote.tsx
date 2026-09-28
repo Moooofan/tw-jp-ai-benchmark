@@ -49,12 +49,12 @@ const HOW_RULES: string[] = [
 const OUTCOME_ITEMS: string[] = [
   "公開 Community Top 10",
   "從 Top 10 產生 Top 3 Featured Companies",
-  "Top 3 每家獲贈一份價值 US$180 的 I.Q Lite AI 形象資產報告",
+  "Top 3 每家獲贈一份價值 US$180 的 IQ Lite AI 形象資產報告",
   "公開演示從 ximu 檢驗、分析到 IQ Lite 完成產出的完整過程",
 ];
 
-/** What the Top 3 prize contains (owner wording). Shown under the I.Q Lite item. */
-const IQ_LITE_ITEM = "Top 3 每家獲贈一份價值 US$180 的 I.Q Lite AI 形象資產報告";
+/** What the Top 3 prize contains (owner wording). Shown under the IQ Lite item. */
+const IQ_LITE_ITEM = "Top 3 每家獲贈一份價值 US$180 的 IQ Lite AI 形象資產報告";
 const IQ_LITE_NOTE =
   "涵蓋品牌與競品的 AI 形象資產現況診斷，優化方向與 90 天行動建議。";
 

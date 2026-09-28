@@ -1016,5 +1016,5 @@ a.ccard__name:hover{color:var(--brand);text-decoration:underline;text-underline-
 .casenote{margin:18px 0 0;font-size:13px;color:var(--muted)}
 @media (max-width:860px){.casegrid{grid-template-columns:1fr}}
 
-/* v9d 2026-09-27 — explanatory line under the I.Q Lite prize item */
+/* v9d 2026-09-27 — explanatory line under the IQ Lite prize item */
 .p2note{display:block;margin-top:3px;font-size:13px;line-height:1.6;opacity:.82;font-weight:400}
