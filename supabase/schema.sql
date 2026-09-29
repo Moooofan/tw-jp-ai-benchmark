@@ -7135,3 +7135,172 @@ grant execute on function public.vote_candidates(text) to anon, authenticated;
 alter table public.ballots add column if not exists proxy boolean not null default false;
 alter table public.ballots add column if not exists proxy_voter text;
 -- END v9-proxy-flag
+
+-- BEGIN v9-reason80-selflike
+-- Owner calls (2026-09-29): Phase Two reasons may be 10–80 characters (was 10–50),
+-- and a voter may like or dislike their own reason. Nominations (Phase One) keep 10–50.
+alter table public.ballot_picks drop constraint if exists ballot_picks_reason_check;
+alter table public.ballot_picks add constraint ballot_picks_reason_check
+  check (char_length(reason) >= 10 and char_length(reason) <= 80);
+
+CREATE OR REPLACE FUNCTION public.cast_ballot(p_email text, p_picks jsonb, p_client_id text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $$
+declare
+  v_uid uuid := auth.uid();
+  v_phase text := public.effective_phase();
+  v_email text := btrim(coalesce(p_email, ''));
+  v_key text;
+  v_today date := (now() at time zone 'Asia/Taipei')::date;
+  v_n int;
+  v_item jsonb;
+  v_in text;
+  v_name text;
+  v_domain text;
+  v_reason text;
+  v_domains text[] := '{}';
+  v_reasons text[] := '{}';
+  v_ballot_id bigint;
+  v_pick_id bigint;
+  v_out jsonb := '[]'::jsonb;
+  i int;
+begin
+  if char_length(v_email) > 254 or v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請確認 Email 格式。';
+  end if;
+  v_key := lower(v_email);
+
+  if v_phase is distinct from 'vote' and not public.is_tester(v_key) then
+    if v_phase in ('pre', 'nominate') then
+      raise exception '投票尚未開放。';
+    end if;
+    raise exception '投票已截止。';
+  end if;
+
+  if p_picks is null or jsonb_typeof(p_picks) <> 'array' or jsonb_array_length(p_picks) < 1 then
+    raise exception '請至少選擇 1 家公司。';
+  end if;
+  v_n := jsonb_array_length(p_picks);
+  if v_n > 3 then
+    raise exception '每張選票最多選 3 家公司。';
+  end if;
+
+  for v_item in select e.value from jsonb_array_elements(p_picks) e loop
+    if jsonb_typeof(v_item) <> 'object' then
+      raise exception '這個動作無法完成。';
+    end if;
+    v_reason := btrim(regexp_replace(coalesce(v_item ->> 'reason', ''), '\s+', ' ', 'g'));
+    if char_length(v_reason) < 10 or char_length(v_reason) > 80 then
+      raise exception '每家公司的理由需要 10–80 個字。';
+    end if;
+    -- v8 §3: the pick must already be in the official pool. ensure_vote_company()
+    -- only resolves and checks it; nothing is created here.
+    v_in := coalesce(nullif(btrim(v_item ->> 'domain'), ''), nullif(btrim(v_item ->> 'site'), ''));
+    v_name := nullif(btrim(v_item ->> 'name'), '');
+    v_domain := public.ensure_vote_company(v_in, v_name, v_email, p_client_id);
+    if v_domain = any (v_domains) then
+      raise exception '同一家公司只能選一次。';
+    end if;
+    if public.shortlist_is_enforced() then
+      if not exists (
+        select 1 from public.shortlist_domains() sd where sd.domain = v_domain
+      ) then
+        raise exception '這家公司不在第二階段的前 10 名名單中。';
+      end if;
+    end if;
+    v_domains := v_domains || v_domain;
+    v_reasons := v_reasons || v_reason;
+  end loop;
+
+  if exists (select 1 from public.ballots b where b.email_key = v_key and b.ballot_date = v_today) then
+    raise exception '今天已經投過了，明天可以再投一次。';
+  end if;
+
+  if v_uid is not null and (
+    select count(*) from public.ballots b
+    where b.session_id = v_uid and b.created_at > now() - interval '1 hour'
+  ) >= 30 then
+    raise exception '操作過於頻繁，請稍後再試。';
+  end if;
+
+  begin
+    insert into public.ballots (email_key, email, ballot_date, session_id)
+    values (v_key, v_email, v_today, v_uid)
+    returning id into v_ballot_id;
+  exception when unique_violation then
+    raise exception '今天已經投過了，明天可以再投一次。';
+  end;
+
+  for i in 1 .. v_n loop
+    insert into public.ballot_picks (ballot_id, domain, reason)
+    values (v_ballot_id, v_domains[i], v_reasons[i])
+    returning id into v_pick_id;
+    v_out := v_out || jsonb_build_array(jsonb_build_object('pick_id', v_pick_id, 'domain', v_domains[i]));
+  end loop;
+
+  return jsonb_build_object(
+    'ballot_id', v_ballot_id,
+    'ballot_date', to_char(v_today, 'YYYY-MM-DD'),
+    'picks', v_out
+  );
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION public.react_reason(p_pick_id bigint, p_email text, p_value smallint)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $$
+declare
+  v_phase text := public.effective_phase();
+  v_email text := btrim(coalesce(p_email, ''));
+  v_key text;
+  v_owner text;
+begin
+  if p_value is null or p_value not in (-1, 0, 1) then
+    raise exception '這個動作無法完成。';
+  end if;
+  if char_length(v_email) > 254 or v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception '請確認 Email 格式。';
+  end if;
+  v_key := lower(v_email);
+
+  if v_phase is distinct from 'vote' and not public.is_tester(v_key) then
+    if v_phase in ('pre', 'nominate') then
+      raise exception '投票尚未開放。';
+    end if;
+    raise exception '投票已截止。';
+  end if;
+
+  select b.email_key into v_owner
+  from public.ballot_picks bp
+  join public.ballots b on b.id = bp.ballot_id
+  join public.companies co on co.domain = bp.domain
+  where bp.id = p_pick_id and not bp.hidden and not b.voided
+    and co.status <> 'hidden' and co.merged_into is null;
+  if v_owner is null then
+    raise exception '這則理由已不存在。';
+  end if;
+
+  -- Owner call 2026-09-29: a voter may also react to their own reason.
+  if p_value = 0 then
+    delete from public.reason_reactions rr where rr.pick_id = p_pick_id and rr.email_key = v_key;
+  else
+    insert into public.reason_reactions (pick_id, email_key, value)
+    values (p_pick_id, v_key, p_value)
+    on conflict (pick_id, email_key) do update set value = excluded.value, created_at = now();
+  end if;
+
+  return (
+    select json_build_object(
+      'likes', (count(*) filter (where rr.value = 1))::int,
+      'dislikes', (count(*) filter (where rr.value = -1))::int)
+    from public.reason_reactions rr where rr.pick_id = p_pick_id
+  );
+end;
+$$;
+-- END v9-reason80-selflike

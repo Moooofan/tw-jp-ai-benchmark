@@ -198,7 +198,7 @@ export type AdminNomination = {
 
 // ---------------------------------------------------------------- v7 Phase 2
 
-/** One pick in a `cast_ballot` payload. `reason` is 10–50 characters. */
+/** One pick in a `cast_ballot` payload. `reason` is 10–80 characters. */
 export type BallotPickInput = { domain: string; reason: string };
 
 /** What `cast_ballot` returns. `ballot_date` is the Asia/Taipei day. */

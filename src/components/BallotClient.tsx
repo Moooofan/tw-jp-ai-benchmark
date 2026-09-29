@@ -28,7 +28,7 @@ import SiteChrome, { DISCLAIMER } from "./SiteChrome";
 
 const MAX_PICKS = 3;
 const MIN_REASON = 10;
-const MAX_REASON = 50;
+const MAX_REASON = 80;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 type Candidate = { domain: string; display_name: string; aliases: string[] };
@@ -172,7 +172,7 @@ export default function BallotClient({
       const n = reasonLength(s.reason);
       return n < MIN_REASON || n > MAX_REASON;
     })) {
-      setErr("每家公司的理由需要 10–50 個字。");
+      setErr("每家公司的理由需要 10–80 個字。");
       return;
     }
     const v = email.trim();
@@ -393,7 +393,7 @@ export default function BallotClient({
                     }}
                   />
                   <p className="hint">
-                    <span>每家公司寫一句 10–50 字的理由</span>
+                    <span>每家公司寫一句 10–80 字的理由</span>
                     <span className={bad ? "over" : undefined}>
                       {n} / {MAX_REASON}
                     </span>

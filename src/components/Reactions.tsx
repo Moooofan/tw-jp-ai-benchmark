@@ -165,14 +165,10 @@ export function ReasonCard({
   }, [likes, dislikes]);
 
   const stance: Stance = ctx?.mine[pickId] ?? 0;
-  const own = ctx?.isOwn(domain, reason) ?? false;
+  // Owner call 2026-09-29: voters may react to their own reasons too.
   const open = ctx?.open ?? false;
-  const disabled = !open || own;
-  const title = !open
-    ? "投票已截止"
-    : own
-      ? "不能對自己的理由表態"
-      : undefined;
+  const disabled = !open;
+  const title = !open ? "投票已截止" : undefined;
   // 按讚滿 10 (locked doc v1.0 §介面微文案). Dislikes never enter this maths.
   const bonus = Math.floor(counts.likes / LIKES_PER_VOTE);
 
