@@ -7128,3 +7128,10 @@ as $$
 $$;
 grant execute on function public.vote_candidates(text) to anon, authenticated;
 -- END v9-default-all
+
+-- BEGIN v9-proxy-flag
+-- Owner rule (2026-09-29, FAQ): people without a company account may vote through the
+-- organiser. Those ballots are marked so they can be audited and counted separately.
+alter table public.ballots add column if not exists proxy boolean not null default false;
+alter table public.ballots add column if not exists proxy_voter text;
+-- END v9-proxy-flag
