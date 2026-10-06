@@ -7304,3 +7304,20 @@ begin
 end;
 $$;
 -- END v9-reason80-selflike
+
+-- BEGIN v9-all-reasons
+-- Owner (2026-10-06): the reasons section must be able to show every reason, not only
+-- the 12 vote_board() carries. Same visibility rules (reason_rows) and the same orders:
+-- 'hot' = likes desc, newest first; 'latest' = newest first.
+create or replace function public.all_reasons(p_order text default 'hot')
+returns json language sql stable security definer set search_path = public as $$
+  select coalesce(json_agg(json_build_object(
+           'pick_id', r.pick_id, 'domain', r.domain, 'display_name', r.display_name,
+           'reason', r.reason, 'likes', r.likes, 'dislikes', r.dislikes)
+         order by
+           case when p_order = 'latest' then 0 else r.likes end desc,
+           r.created_at desc, r.pick_id desc), '[]'::json)
+  from (select * from public.reason_rows() limit 2000) r;
+$$;
+grant execute on function public.all_reasons(text) to anon, authenticated;
+-- END v9-all-reasons

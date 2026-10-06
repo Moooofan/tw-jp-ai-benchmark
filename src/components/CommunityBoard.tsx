@@ -18,7 +18,12 @@ import {
 } from "lucide-react";
 import { dateRange } from "@/lib/format";
 import { getBrowserClient } from "@/lib/supabase-browser";
-import { EMPTY_VOTE_BOARD, type Movement, type VoteBoard } from "@/lib/types";
+import {
+  EMPTY_VOTE_BOARD,
+  type Movement,
+  type ReasonCard as ReasonRow,
+  type VoteBoard,
+} from "@/lib/types";
 import { wordCloud, type CloudWord } from "@/lib/wordcloud";
 import Favicon from "./Favicon";
 import Icon from "./Icon";
@@ -225,7 +230,22 @@ export function ResultBoard() {
 export function ReasonTabs() {
   const board = useBoard();
   const [tab, setTab] = useState<"hot" | "latest">("hot");
-  const list = tab === "hot" ? board.hot_reasons : board.latest_reasons;
+  // vote_board() carries 12 per tab; all_reasons() returns every visible reason
+  // in the same order once the visitor asks for them (owner, 2026-10-06).
+  const [all, setAll] = useState<Record<"hot" | "latest", ReasonRow[] | null>>({
+    hot: null,
+    latest: null,
+  });
+  const [loading, setLoading] = useState(false);
+  const preview = tab === "hot" ? board.hot_reasons : board.latest_reasons;
+  const list = all[tab] ?? preview;
+  const total = board.total_reasons;
+  async function showAll() {
+    setLoading(true);
+    const { data } = await getBrowserClient().rpc("all_reasons", { p_order: tab });
+    setLoading(false);
+    if (Array.isArray(data)) setAll((a) => ({ ...a, [tab]: data as ReasonRow[] }));
+  }
   return (
     <>
       <div className="tabs" role="tablist" aria-label="理由排序">
@@ -265,6 +285,13 @@ export function ReasonTabs() {
           ))}
         </div>
       )}
+      {all[tab] === null && total > list.length ? (
+        <div className="rmore">
+          <button type="button" className="btn btn--line" onClick={showAll} disabled={loading}>
+            {loading ? "載入中…" : `看全部 ${total} 則理由`}
+          </button>
+        </div>
+      ) : null}
     </>
   );
 }
